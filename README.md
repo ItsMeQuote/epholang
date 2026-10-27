@@ -106,6 +106,15 @@ cd epholang
 cargo build --release
 ```
 
+### Editor support
+
+A VS Code extension with syntax highlighting is available on the [Releases](../../releases) page.
+Install it with:
+
+```sh
+code --install-extension epholang-language-0.1.0.vsix
+```
+
 ### Run
 
 ```sh
