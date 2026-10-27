@@ -1,0 +1,15 @@
+greet func := function(name str = "") str {
+    if name == "" {
+        return str "Hello!"
+    } otherwise {
+        return str "Hello, #{name}!"
+    }
+}
+
+square func := function(x num) num {
+    return num x * x
+}
+
+output("#{greet()}\n")
+output("#{greet(\"World\")}\n")
+output("Square of 5: #{square(5)}\n")

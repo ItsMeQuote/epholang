@@ -1,0 +1,10 @@
+# Rust / Cargo build artifacts
+/target/
+
+# Local editor settings
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.bak

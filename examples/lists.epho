@@ -1,0 +1,11 @@
+nums ls<num> := list<num>{10, 20, 30}
+
+nums = insert(nums, 1, 5)
+nums = remove(nums, 2)
+
+total num := 0
+cycle n in nums {
+    total = total + n
+}
+
+output("#{nums} has #{length(nums)} items, sum = #{total}\n")

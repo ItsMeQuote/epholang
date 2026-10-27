@@ -1,0 +1,12 @@
+i num := 1
+
+cycle i < 4 {
+    output("#{i}\n")
+    i = i + 1
+}
+
+items ls<str> := list<str>{"red", "green", "blue"}
+
+cycle item in items {
+    output("#{item}\n")
+}
