@@ -1,0 +1,46 @@
+{
+  "name": "epholang-language",
+  "displayName": "Epholang",
+  "icon": "icon.png",
+  "description": "Syntax highlighting and basic editing support for Epholang.",
+  "version": "0.1.0",
+  "publisher": "itsmequote",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "epholang",
+    "epho",
+    "syntax highlighting"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "epholang",
+        "aliases": [
+          "Epholang",
+          "epholang"
+        ],
+        "extensions": [
+          ".epho"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "epholang",
+        "scopeName": "source.epholang",
+        "path": "./syntaxes/epholang.tmLanguage.json"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ItsMeQuote/epholang"
+  }
+}

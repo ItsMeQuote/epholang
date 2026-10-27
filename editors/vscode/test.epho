@@ -1,0 +1,7 @@
+output("Escaped: \#{name} and \}\n")
+output("Nested: #{list<num>{1, 2}}\n")
+output("Quotes: #{greet(\"Hexer\")}\n")
+
+/* комментарий с /* вложенным */ и продолжением */
+
+output(1 <= 2)

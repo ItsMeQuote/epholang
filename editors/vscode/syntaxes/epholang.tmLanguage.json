@@ -1,0 +1,163 @@
+{
+  "name": "Epholang",
+  "scopeName": "source.epholang",
+  "patterns": [
+    {
+      "include": "#code"
+    }
+  ],
+  "repository": {
+    "code": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#tokens"
+        }
+      ]
+    },
+    "comments": {
+      "name": "comment.block.epholang",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [
+        {
+          "include": "#comments"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.epholang",
+      "begin": "\"",
+      "end": "\"|$",
+      "patterns": [
+        {
+          "include": "#escapes"
+        },
+        {
+          "include": "#interpolation"
+        }
+      ]
+    },
+    "escapes": {
+      "name": "constant.character.escape.epholang",
+      "match": "\\\\[nt\"\\\\#}]"
+    },
+    "interpolation": {
+      "name": "meta.interpolation.epholang",
+      "contentName": "meta.embedded.inline.epholang",
+      "begin": "#\\{",
+      "end": "\\}|$",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.epholang"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.epholang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#interpolation-code"
+        }
+      ]
+    },
+    "interpolation-code": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#interpolation-string"
+        },
+        {
+          "include": "#interpolation-braces"
+        },
+        {
+          "include": "#tokens"
+        }
+      ]
+    },
+    "interpolation-string": {
+      "name": "string.quoted.double.epholang",
+      "begin": "\\\\\"",
+      "end": "\\\\\"|$",
+      "patterns": [
+        {
+          "include": "#escapes"
+        },
+        {
+          "include": "#interpolation"
+        }
+      ]
+    },
+    "interpolation-braces": {
+      "name": "meta.braces.epholang",
+      "begin": "\\{",
+      "end": "\\}|$",
+      "patterns": [
+        {
+          "include": "#interpolation-code"
+        }
+      ]
+    },
+    "tokens": {
+      "patterns": [
+        {
+          "name": "invalid.illegal.operator.epholang",
+          "match": "<=|>="
+        },
+        {
+          "name": "entity.name.function.epholang",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s+func\\b)"
+        },
+        {
+          "name": "keyword.control.epholang",
+          "match": "\\b(?:if|otherwise|cycle|in|return)\\b"
+        },
+        {
+          "name": "storage.type.function.epholang",
+          "match": "\\b(?:function)\\b"
+        },
+        {
+          "name": "storage.type.epholang",
+          "match": "\\b(?:num|str|bool|none|type|ls|list|func)\\b"
+        },
+        {
+          "name": "constant.language.epholang",
+          "match": "\\b(?:true|false|null)\\b"
+        },
+        {
+          "name": "support.function.epholang",
+          "match": "\\b(?:output|length|insert|remove|typeOf)(?=\\s*\\()"
+        },
+        {
+          "name": "entity.name.function.epholang",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+        },
+        {
+          "name": "constant.numeric.epholang",
+          "match": "(?<![A-Za-z0-9_.])(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)(?![A-Za-z0-9_.])"
+        },
+        {
+          "name": "keyword.operator.epholang",
+          "match": ":=|==|!=|&&|\\|\\||[+*/%^=<>!\\-]"
+        },
+        {
+          "name": "variable.other.readwrite.epholang",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "punctuation.epholang",
+          "match": "[()\\[\\]{},;]"
+        }
+      ]
+    }
+  }
+}
