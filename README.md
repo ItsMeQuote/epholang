@@ -12,6 +12,8 @@
 
 ---
 
+\[ [**English**](README.md) | [Русский](README.ru.md) \]
+
 Epholang is a programming language built around a few simple ideas:
 
 - **One way to do a thing.** Fewer overlapping features means fewer choices that don't matter.
