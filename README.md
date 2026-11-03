@@ -10,9 +10,22 @@
   An experimental statically checked programming language.
 </p>
 
+<p align="center">
+  <a href="https://github.com/ItsMeQuote/epholang/releases">
+    <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version">
+  </a>
+  <img src="https://img.shields.io/badge/language-Rust-orange" alt="Language">
+  <a href="https://github.com/ItsMeQuote/epholang/stargazers">
+    <img src="https://img.shields.io/github/stars/ItsMeQuote/epholang" alt="Stars">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/ItsMeQuote/epholang" alt="License">
+  </a>
+</p>
+
 ---
 
-\[ [**English**](README.md) | [Русский](README.ru.md) \]
+[**English**](README.md) | [Русский](README.ru.md)
 
 Epholang is a programming language built around a few simple ideas:
 
