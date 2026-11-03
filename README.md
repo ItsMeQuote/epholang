@@ -21,6 +21,9 @@
   <a href="LICENSE">
     <img src="https://img.shields.io/github/license/ItsMeQuote/epholang" alt="License">
   </a>
+  <a href="https://github.com/ItsMeQuote/epholang/actions/workflows/ci.yml">
+	  <img src="https://github.com/ItsMeQuote/epholang/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
 </p>
 
 ---
