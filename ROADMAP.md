@@ -1,7 +1,7 @@
 
 # Epholang Roadmap
 
-[ [**English**](ROADMAP.md) | [Russian](ROADMAP.ru.md ]
+[ [**English**](ROADMAP.md) | [Russian](ROADMAP.ru.md) ]
 
 This document describes the planned development of Epholang.
 
