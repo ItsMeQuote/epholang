@@ -142,8 +142,6 @@ epholang tokens program.epho   # show lexer output
 epholang parse program.epho    # show the syntax tree
 ```
 
-Tested on Windows. Other platforms should work, but haven't been verified yet.
-
 ## Language overview
 
 ### Types
