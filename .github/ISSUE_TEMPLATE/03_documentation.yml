@@ -1,0 +1,77 @@
+
+name: "📖 Documentation"
+description: Report documentation errors or suggest improvements
+title: "[DOCS] "
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Epholang's documentation!
+
+        Clear and accurate documentation makes the language easier to learn and use.
+
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Existing issues
+      options:
+        - label: I have searched existing issues and confirmed that this problem has not already been reported.
+          required: true
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Documentation language
+      options:
+        - English
+        - Russian
+        - Both
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue type
+      options:
+        - Incorrect information
+        - Missing information
+        - Typographical or grammatical error
+        - Unclear explanation
+        - Outdated information
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: Provide a link or specify the file and section.
+      placeholder: "README.md, Types section"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Explain what is incorrect or could be improved.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: If possible, provide corrected text or an example.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional information
+    validations:
+      required: false
