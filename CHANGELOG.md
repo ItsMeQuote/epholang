@@ -1,6 +1,8 @@
 
 # Changelog
 
+[**English**](CHANGELOG.md) | [Русский](CHANGELOG.ru.md)
+
 All notable changes to Epholang are documented in this file.
 
 ## [0.1.0] - 2026-10-27
