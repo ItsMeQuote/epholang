@@ -1,0 +1,58 @@
+
+name: "❓ Question"
+description: Ask a question about Epholang
+title: "[QUESTION] "
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for your interest in Epholang!
+
+        Before asking, please check the documentation:
+        https://github.com/ItsMeQuote/epholang
+
+        For general discussions, you can also visit our Telegram community (Russian):
+        https://t.me/epholang
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question category
+      options:
+        - Syntax
+        - Types
+        - Functions
+        - Lists and data structures
+        - Error handling
+        - Standard library
+        - Installation and setup
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: Clearly describe what you want to know.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Provide relevant code examples or explain what you have already tried.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Epholang version
+      description: Provide the exact version if your question concerns specific behaviour.
+      placeholder: "0.1.0"
+    validations:
+      required: false
