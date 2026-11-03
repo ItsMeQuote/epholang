@@ -5,6 +5,14 @@ title: "[BUG] "
 labels: ["bug"]
 
 body:
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Existing issues
+      options:
+        - label: I have searched existing issues and confirmed that this bug has not already been reported.
+          required: true
+
   - type: markdown
     attributes:
       value: |
@@ -31,6 +39,8 @@ body:
         - Static type checker
         - Built-in functions
         - CLI
+        - Standard library
+        - Documentation
         - Other
     validations:
       required: true
@@ -81,5 +91,13 @@ body:
     id: additional
     attributes:
       label: Additional information
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional information
+      description: "You can attach screenshots, logs, or other files that may help us understand the problem."
     validations:
       required: false
