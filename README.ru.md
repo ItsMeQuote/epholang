@@ -1,5 +1,6 @@
+
 <p align="center">
-  <img src="images/epholang_logo.png" alt="Epholang logo" width="auto">
+  <img src="images/epholang_logo.png" alt="Логотип Epholang" width="auto">
 </p>
 
 <div align="center">
@@ -8,6 +9,19 @@
 
 <p align="center">
   Экспериментальный язык программирования со статической проверкой кода.
+</p>
+
+<p align="center">
+  <a href="https://github.com/ItsMeQuote/epholang/releases">
+    <img src="https://img.shields.io/badge/версия-0.1.0-blue" alt="Версия">
+  </a>
+  <img src="https://img.shields.io/badge/язык-Rust-orange" alt="Язык реализации">
+  <a href="https://github.com/ItsMeQuote/epholang/stargazers">
+    <img src="https://img.shields.io/github/stars/ItsMeQuote/epholang" alt="Звёзды">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/ItsMeQuote/epholang" alt="Лицензия">
+  </a>
 </p>
 
 ---
