@@ -2677,13 +2677,13 @@ impl Interpreter {
 
                     (Value::Num(a), "*", Value::Num(b)) => Value::Num(a * b),
 
-                    (Value::Num(_), "/", Value::Num(b)) if b == 0.0 => {
+                    (Value::Num(_), "/", Value::Num(0.0)) => {
                         return Err(Diagnostic::new(expr.span, "Division by zero"));
                     }
 
                     (Value::Num(a), "/", Value::Num(b)) => Value::Num(a / b),
 
-                    (Value::Num(_), "%", Value::Num(b)) if b == 0.0 => {
+                    (Value::Num(_), "%", Value::Num(0.0)) => {
                         return Err(Diagnostic::new(expr.span, "Modulo by zero"));
                     }
 
