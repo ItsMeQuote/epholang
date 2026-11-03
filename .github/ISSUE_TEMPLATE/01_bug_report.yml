@@ -14,6 +14,7 @@ body:
           required: true
 
   - type: markdown
+    id: thank
     attributes:
       value: |
         Thank you for reporting a bug!
@@ -86,13 +87,6 @@ body:
       label: Actual behaviour
     validations:
       required: true
-
-  - type: textarea
-    id: additional
-    attributes:
-      label: Additional information
-    validations:
-      required: false
 
   - type: textarea
     id: additional
