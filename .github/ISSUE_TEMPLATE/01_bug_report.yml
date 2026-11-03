@@ -1,0 +1,84 @@
+
+name: "🐞 Bug report"
+description: Report a bug in Epholang
+title: ""
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug!
+        Please make sure you are using a supported version of Epholang.
+
+  - type: input
+    id: version
+    attributes:
+      label: Epholang version. DO NOT TYPE LATEST; WE WILL CLOSE ISSUE IMMEDIATELY.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Lexer
+        - Parser
+        - Interpreter
+        - Static type checker
+        - Built-in functions
+        - CLI
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a file...
+        2. Write...
+        3. Run...
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Code example
+      description: Provide the smallest example that reproduces the issue.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional information
+    validations:
+      required: false
