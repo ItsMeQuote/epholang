@@ -58,12 +58,7 @@ impl Diagnostic {
 
 type EResult<T> = Result<T, Diagnostic>;
 
-fn print_diagnostic(
-    prefix: &str,
-    path: &str,
-    source: &str,
-    diagnostic: &Diagnostic,
-) {
+fn print_diagnostic(prefix: &str, path: &str, source: &str, diagnostic: &Diagnostic) {
     let span = diagnostic.span;
 
     eprintln!("{}: {}", prefix, diagnostic.message);
@@ -96,12 +91,7 @@ fn print_diagnostic(
     let gutter = " ".repeat(width);
 
     eprintln!("{} |", gutter);
-    eprintln!(
-        "{:>width$} | {}",
-        span.line,
-        displayed_line,
-        width = width
-    );
+    eprintln!("{:>width$} | {}", span.line, displayed_line, width = width);
     eprintln!(
         "{} | {}{}",
         gutter,
@@ -146,14 +136,8 @@ struct SourceChar {
     span: Span,
 }
 
-fn pair(
-    chars: &[SourceChar],
-    i: usize,
-    first: char,
-    second: char,
-) -> bool {
-    chars.get(i).is_some_and(|c| c.ch == first)
-        && chars.get(i + 1).is_some_and(|c| c.ch == second)
+fn pair(chars: &[SourceChar], i: usize, first: char, second: char) -> bool {
+    chars.get(i).is_some_and(|c| c.ch == first) && chars.get(i + 1).is_some_and(|c| c.ch == second)
 }
 
 fn range_span(chars: &[SourceChar], start: usize, end: usize) -> Span {
@@ -292,17 +276,11 @@ fn scan_interpolation(
     if comment_depth > 0 {
         Err(Diagnostic::new(comment_start, "Unclosed comment"))
     } else {
-        Err(Diagnostic::new(
-            opening_span,
-            "Unclosed interpolation",
-        ))
+        Err(Diagnostic::new(opening_span, "Unclosed interpolation"))
     }
 }
 
-fn lex_chars(
-    chars: &[SourceChar],
-    eof_span: Span,
-) -> EResult<Vec<Token>> {
+fn lex_chars(chars: &[SourceChar], eof_span: Span) -> EResult<Vec<Token>> {
     let mut tokens = Vec::new();
     let mut i = 0;
 
@@ -341,10 +319,7 @@ fn lex_chars(
             }
 
             if depth != 0 {
-                return Err(Diagnostic::new(
-                    opening_span,
-                    "Unclosed comment",
-                ));
+                return Err(Diagnostic::new(opening_span, "Unclosed comment"));
             }
 
             continue;
@@ -369,18 +344,12 @@ fn lex_chars(
                 }
 
                 if ch == '\n' {
-                    return Err(Diagnostic::new(
-                        chars[i].span,
-                        "Newline inside string",
-                    ));
+                    return Err(Diagnostic::new(chars[i].span, "Newline inside string"));
                 }
 
                 if ch == '\\' && i + 1 < chars.len() {
                     if chars[i + 1].ch == '\n' {
-                        return Err(Diagnostic::new(
-                            chars[i + 1].span,
-                            "Newline inside string",
-                        ));
+                        return Err(Diagnostic::new(chars[i + 1].span, "Newline inside string"));
                     }
 
                     match chars[i + 1].ch {
@@ -404,22 +373,16 @@ fn lex_chars(
                     let opening_span = range_span(chars, i, i + 2);
                     i += 2;
 
-                    let (code, code_eof) =
-                        scan_interpolation(chars, &mut i, opening_span)?;
+                    let (code, code_eof) = scan_interpolation(chars, &mut i, opening_span)?;
 
                     if code.iter().all(|c| c.ch.is_whitespace()) {
-                        return Err(Diagnostic::new(
-                            opening_span,
-                            "Empty interpolation",
-                        ));
+                        return Err(Diagnostic::new(opening_span, "Empty interpolation"));
                     }
 
                     let code_tokens = lex_chars(&code, code_eof)?;
 
                     if !text.is_empty() {
-                        parts.push(StringPart::Text(
-                            std::mem::take(&mut text),
-                        ));
+                        parts.push(StringPart::Text(std::mem::take(&mut text)));
                     }
 
                     parts.push(StringPart::Code(code_tokens));
@@ -431,10 +394,7 @@ fn lex_chars(
             }
 
             if !closed {
-                return Err(Diagnostic::new(
-                    chars[start].span,
-                    "Unclosed string",
-                ));
+                return Err(Diagnostic::new(chars[start].span, "Unclosed string"));
             }
 
             let kind = if parts.is_empty() {
@@ -456,10 +416,7 @@ fn lex_chars(
         }
 
         if c.is_ascii_digit()
-            || (c == '.'
-                && chars
-                    .get(i + 1)
-                    .is_some_and(|c| c.ch.is_ascii_digit()))
+            || (c == '.' && chars.get(i + 1).is_some_and(|c| c.ch.is_ascii_digit()))
         {
             while i < chars.len() && chars[i].ch.is_ascii_digit() {
                 i += 1;
@@ -467,9 +424,7 @@ fn lex_chars(
 
             if i < chars.len()
                 && chars[i].ch == '.'
-                && chars
-                    .get(i + 1)
-                    .is_some_and(|c| c.ch.is_ascii_digit())
+                && chars.get(i + 1).is_some_and(|c| c.ch.is_ascii_digit())
             {
                 i += 1;
 
@@ -479,18 +434,14 @@ fn lex_chars(
             }
 
             let span = range_span(chars, start, i);
-            let text: String =
-                chars[start..i].iter().map(|c| c.ch).collect();
+            let text: String = chars[start..i].iter().map(|c| c.ch).collect();
 
             let number = text
                 .parse::<f64>()
                 .map_err(|_| Diagnostic::new(span, "Invalid number"))?;
 
             if !number.is_finite() {
-                return Err(Diagnostic::new(
-                    span,
-                    "Number out of range",
-                ));
+                return Err(Diagnostic::new(span, "Number out of range"));
             }
 
             tokens.push(Token {
@@ -502,15 +453,11 @@ fn lex_chars(
         }
 
         if c.is_ascii_alphabetic() || c == '_' {
-            while i < chars.len()
-                && (chars[i].ch.is_ascii_alphanumeric()
-                    || chars[i].ch == '_')
-            {
+            while i < chars.len() && (chars[i].ch.is_ascii_alphanumeric() || chars[i].ch == '_') {
                 i += 1;
             }
 
-            let name: String =
-                chars[start..i].iter().map(|c| c.ch).collect();
+            let name: String = chars[start..i].iter().map(|c| c.ch).collect();
 
             tokens.push(Token {
                 kind: TokenKind::Identifier(name),
@@ -520,8 +467,7 @@ fn lex_chars(
             continue;
         }
 
-        let two: String =
-            chars.iter().skip(i).take(2).map(|c| c.ch).collect();
+        let two: String = chars.iter().skip(i).take(2).map(|c| c.ch).collect();
 
         if two == "<=" || two == ">=" {
             return Err(Diagnostic::new(
@@ -615,8 +561,7 @@ impl Value {
             Value::Type(t) => t.clone(),
 
             Value::List(_, elements) => {
-                let elements: Vec<String> =
-                    elements.iter().map(Value::display).collect();
+                let elements: Vec<String> = elements.iter().map(Value::display).collect();
 
                 format!("list{{{}}}", elements.join(", "))
             }
@@ -628,8 +573,7 @@ const ELEMENT_TYPES: [&str; 4] = ["num", "str", "bool", "none"];
 
 fn valid_type(name: &str) -> bool {
     matches!(name, "num" | "str" | "bool" | "none" | "type")
-        || list_inner(name)
-            .is_some_and(|inner| ELEMENT_TYPES.contains(&inner))
+        || list_inner(name).is_some_and(|inner| ELEMENT_TYPES.contains(&inner))
 }
 
 fn list_inner(name: &str) -> Option<&str> {
@@ -650,10 +594,28 @@ struct TypeAnn {
 
 fn check_reserved(name: &Name) -> EResult<()> {
     let reserved = [
-        "num", "str", "bool", "none", "type", "ls", "list",
-        "length", "output", "insert", "remove", "typeOf",
-        "true", "false", "null", "cycle", "if", "otherwise",
-        "return", "func", "function", "in",
+        "num",
+        "str",
+        "bool",
+        "none",
+        "type",
+        "ls",
+        "list",
+        "length",
+        "output",
+        "insert",
+        "remove",
+        "typeOf",
+        "true",
+        "false",
+        "null",
+        "cycle",
+        "if",
+        "otherwise",
+        "return",
+        "func",
+        "function",
+        "in",
     ];
 
     if reserved.contains(&name.text.as_str()) {
@@ -788,10 +750,7 @@ impl Parser {
     }
 
     fn look(&self, offset: usize) -> &TokenKind {
-        &self.tokens[
-            (self.pos + offset).min(self.tokens.len() - 1)
-        ]
-        .kind
+        &self.tokens[(self.pos + offset).min(self.tokens.len() - 1)].kind
     }
 
     fn advance(&mut self) -> Token {
@@ -819,9 +778,7 @@ impl Parser {
     }
 
     fn skip_newlines(&mut self) {
-        while matches!(&self.current().kind, TokenKind::Newline)
-            || self.symbol(";")
-        {
+        while matches!(&self.current().kind, TokenKind::Newline) || self.symbol(";") {
             self.advance();
         }
     }
@@ -846,10 +803,7 @@ impl Parser {
                 span: token.span,
             }),
 
-            _ => Err(Diagnostic::new(
-                token.span,
-                "Expected an identifier",
-            )),
+            _ => Err(Diagnostic::new(token.span, "Expected an identifier")),
         }
     }
 
@@ -859,10 +813,7 @@ impl Parser {
         let inner = self.expect_name()?;
 
         if !ELEMENT_TYPES.contains(&inner.text.as_str()) {
-            return Err(Diagnostic::new(
-                inner.span,
-                "Invalid list element type",
-            ));
+            return Err(Diagnostic::new(inner.span, "Invalid list element type"));
         }
 
         self.expect_symbol(">")?;
@@ -890,10 +841,8 @@ impl Parser {
         while !matches!(&self.current().kind, TokenKind::Eof) {
             statements.push(self.parse_statement()?);
 
-            if !matches!(
-                &self.current().kind,
-                TokenKind::Eof | TokenKind::Newline
-            ) && !self.symbol(";")
+            if !matches!(&self.current().kind, TokenKind::Eof | TokenKind::Newline)
+                && !self.symbol(";")
             {
                 return Err(Diagnostic::new(
                     self.current().span,
@@ -915,19 +864,13 @@ impl Parser {
 
         while !self.symbol("}") {
             if matches!(&self.current().kind, TokenKind::Eof) {
-                return Err(Diagnostic::new(
-                    self.current().span,
-                    "Unclosed block",
-                ));
+                return Err(Diagnostic::new(self.current().span, "Unclosed block"));
             }
 
             statements.push(self.parse_statement()?);
 
             if !self.symbol("}")
-                && !matches!(
-                    &self.current().kind,
-                    TokenKind::Newline
-                )
+                && !matches!(&self.current().kind, TokenKind::Newline)
                 && !self.symbol(";")
             {
                 return Err(Diagnostic::new(
@@ -967,9 +910,7 @@ impl Parser {
                     ));
                 }
 
-                if !valid_type(&parameter_type.name)
-                    || parameter_type.name == "none"
-                {
+                if !valid_type(&parameter_type.name) || parameter_type.name == "none" {
                     return Err(Diagnostic::new(
                         parameter_type.span,
                         "Invalid parameter type",
@@ -1024,10 +965,7 @@ impl Parser {
         let return_type = self.parse_type()?;
 
         if !valid_type(&return_type.name) {
-            return Err(Diagnostic::new(
-                return_type.span,
-                "Invalid return type",
-            ));
+            return Err(Diagnostic::new(return_type.span, "Invalid return type"));
         }
 
         let body = self.parse_block()?;
@@ -1180,22 +1118,21 @@ impl Parser {
         }
 
         if matches!(&self.current().kind, TokenKind::Identifier(_)) {
-            let is_declaration =
-                if let TokenKind::Identifier(t) = self.look(1) {
-                    if t == "ls" {
-                        matches!(
-                            self.look(2),
-                            TokenKind::Symbol(s) if s == "<"
-                        )
-                    } else {
-                        matches!(
-                            self.look(2),
-                            TokenKind::Symbol(s) if s == ":="
-                        )
-                    }
+            let is_declaration = if let TokenKind::Identifier(t) = self.look(1) {
+                if t == "ls" {
+                    matches!(
+                        self.look(2),
+                        TokenKind::Symbol(s) if s == "<"
+                    )
                 } else {
-                    false
-                };
+                    matches!(
+                        self.look(2),
+                        TokenKind::Symbol(s) if s == ":="
+                    )
+                }
+            } else {
+                false
+            };
 
             if is_declaration {
                 let name = self.expect_name()?;
@@ -1211,10 +1148,7 @@ impl Parser {
                 }
 
                 if !valid_type(&declared_type.name) {
-                    return Err(Diagnostic::new(
-                        declared_type.span,
-                        "Invalid variable type",
-                    ));
+                    return Err(Diagnostic::new(declared_type.span, "Invalid variable type"));
                 }
 
                 self.expect_symbol(":=")?;
@@ -1264,10 +1198,7 @@ impl Parser {
                     }
                 }
 
-                _ => Err(Diagnostic::new(
-                    target_span,
-                    "Invalid assignment target",
-                )),
+                _ => Err(Diagnostic::new(target_span, "Invalid assignment target")),
             };
         }
 
@@ -1292,8 +1223,7 @@ impl Parser {
         loop {
             let op = match &self.current().kind {
                 TokenKind::Symbol(s)
-                    if Self::precedence(s) >= min_prec
-                        && Self::precedence(s) > 0 =>
+                    if Self::precedence(s) >= min_prec && Self::precedence(s) > 0 =>
                 {
                     s.clone()
                 }
@@ -1308,11 +1238,7 @@ impl Parser {
             let right = self.parse_expression(next_min)?;
 
             left = Expr::new(
-                ExprKind::Binary(
-                    Box::new(left),
-                    op,
-                    Box::new(right),
-                ),
+                ExprKind::Binary(Box::new(left), op, Box::new(right)),
                 op_token.span,
             );
         }
@@ -1369,10 +1295,7 @@ impl Parser {
                             let mut sub = Parser::new(tokens);
                             let expr = sub.parse_expression(0)?;
 
-                            if !matches!(
-                                &sub.current().kind,
-                                TokenKind::Eof
-                            ) {
+                            if !matches!(&sub.current().kind, TokenKind::Eof) {
                                 return Err(Diagnostic::new(
                                     sub.current().span,
                                     "Unexpected token inside interpolation",
@@ -1414,10 +1337,7 @@ impl Parser {
             }
 
             TokenKind::Identifier(name)
-                if matches!(
-                    name.as_str(),
-                    "num" | "str" | "bool" | "none" | "type"
-                ) =>
+                if matches!(name.as_str(), "num" | "str" | "bool" | "none" | "type") =>
             {
                 ExprKind::Literal(Value::Type(name))
             }
@@ -1427,17 +1347,11 @@ impl Parser {
                 ExprKind::Literal(Value::Type(format!("ls<{}>", inner)))
             }
 
-            TokenKind::Identifier(name) if name == "true" => {
-                ExprKind::Literal(Value::Bool(true))
-            }
+            TokenKind::Identifier(name) if name == "true" => ExprKind::Literal(Value::Bool(true)),
 
-            TokenKind::Identifier(name) if name == "false" => {
-                ExprKind::Literal(Value::Bool(false))
-            }
+            TokenKind::Identifier(name) if name == "false" => ExprKind::Literal(Value::Bool(false)),
 
-            TokenKind::Identifier(name) if name == "null" => {
-                ExprKind::Literal(Value::Null)
-            }
+            TokenKind::Identifier(name) if name == "null" => ExprKind::Literal(Value::Null),
 
             TokenKind::Identifier(name) => {
                 if self.symbol("(") {
@@ -1578,29 +1492,20 @@ impl Checker {
             }
         }
 
-        self.errors
-            .sort_by_key(|e| (e.span.line, e.span.column));
+        self.errors.sort_by_key(|e| (e.span.line, e.span.column));
 
         self.errors
     }
 
     fn report_unused(&mut self, scope: HashMap<String, VarInfo>) {
-        let mut unused: Vec<_> = scope
-            .into_iter()
-            .filter(|(_, info)| !info.used)
-            .collect();
+        let mut unused: Vec<_> = scope.into_iter().filter(|(_, info)| !info.used).collect();
 
-        unused.sort_by_key(|(_, info)| {
-            (info.span.line, info.span.column)
-        });
+        unused.sort_by_key(|(_, info)| (info.span.line, info.span.column));
 
         for (name, info) in unused {
             let message = match (info.kind, &self.current_function) {
                 ("parameter", Some((function, _))) => {
-                    format!(
-                        "Unused parameter '{}' in function '{}'",
-                        name, function
-                    )
+                    format!("Unused parameter '{}' in function '{}'", name, function)
                 }
 
                 (kind, _) => format!("Unused {} '{}'", kind, name),
@@ -1610,12 +1515,7 @@ impl Checker {
         }
     }
 
-    fn declare(
-        &mut self,
-        name: &Name,
-        ty: Option<String>,
-        kind: &'static str,
-    ) {
+    fn declare(&mut self, name: &Name, ty: Option<String>, kind: &'static str) {
         if self.functions.contains_key(&name.text) {
             self.err(
                 name.span,
@@ -1640,10 +1540,7 @@ impl Checker {
         {
             self.err(
                 name.span,
-                format!(
-                    "'{}' is already declared in an outer scope",
-                    name.text
-                ),
+                format!("'{}' is already declared in an outer scope", name.text),
             );
             return;
         }
@@ -1679,10 +1576,7 @@ impl Checker {
             }
         }
 
-        self.err(
-            name.span,
-            format!("Undefined variable '{}'", name.text),
-        );
+        self.err(name.span, format!("Undefined variable '{}'", name.text));
 
         None
     }
@@ -1700,9 +1594,7 @@ impl Checker {
 
         for stmt in statements {
             if unreachable {
-                if let Some((function, _)) =
-                    self.current_function.clone()
-                {
+                if let Some((function, _)) = self.current_function.clone() {
                     self.err(
                         stmt.span,
                         format!(
@@ -1755,20 +1647,14 @@ impl Checker {
                     }
                 }
 
-                self.declare(
-                    name,
-                    Some(declared_type.name.clone()),
-                    "variable",
-                );
+                self.declare(name, Some(declared_type.name.clone()), "variable");
             }
 
             Statement::Assign { name, value } => {
                 let value_type = self.expr_type(value);
                 let target_type = self.target_type(name);
 
-                if let (Some(value_type), Some(target_type)) =
-                    (value_type, target_type)
-                {
+                if let (Some(value_type), Some(target_type)) = (value_type, target_type) {
                     if value_type != target_type {
                         self.err(
                             value.span,
@@ -1803,10 +1689,7 @@ impl Checker {
                             }
                         }
 
-                        None => self.err(
-                            name.span,
-                            format!("Cannot index into {}", target_type),
-                        ),
+                        None => self.err(name.span, format!("Cannot index into {}", target_type)),
                     }
                 }
             }
@@ -1822,10 +1705,7 @@ impl Checker {
                 let value_type = self.expr_type(value);
 
                 match self.current_function.clone() {
-                    None => self.err(
-                        stmt.span,
-                        "return is only allowed inside a function",
-                    ),
+                    None => self.err(stmt.span, "return is only allowed inside a function"),
 
                     Some((function, return_type)) => {
                         if declared_type.name != return_type {
@@ -1884,10 +1764,7 @@ impl Checker {
                         None => {
                             self.err(
                                 list_expr.span,
-                                format!(
-                                    "cycle .. in .. requires a list, got {}",
-                                    ty
-                                ),
+                                format!("cycle .. in .. requires a list, got {}", ty),
                             );
                             None
                         }
@@ -1912,20 +1789,12 @@ impl Checker {
         let name = &definition.name;
 
         if self.current_function.is_some() || self.scopes.len() != 1 {
-            self.err(
-                name.span,
-                "Functions can only be declared at the top level",
-            );
+            self.err(name.span, "Functions can only be declared at the top level");
             return;
         }
 
-        if self.functions.contains_key(&name.text)
-            || self.scopes[0].contains_key(&name.text)
-        {
-            self.err(
-                name.span,
-                format!("'{}' is already declared", name.text),
-            );
+        if self.functions.contains_key(&name.text) || self.scopes[0].contains_key(&name.text) {
+            self.err(name.span, format!("'{}' is already declared", name.text));
             return;
         }
 
@@ -1937,9 +1806,7 @@ impl Checker {
                             default.span,
                             format!(
                                 "Default value of '{}' expects {}, got {}",
-                                parameter.name.text,
-                                parameter.declared_type.name,
-                                ty
+                                parameter.name.text, parameter.declared_type.name, ty
                             ),
                         );
                     }
@@ -1953,12 +1820,7 @@ impl Checker {
                 params: definition
                     .parameters
                     .iter()
-                    .map(|p| {
-                        (
-                            p.declared_type.name.clone(),
-                            p.default.is_some(),
-                        )
-                    })
+                    .map(|p| (p.declared_type.name.clone(), p.default.is_some()))
                     .collect(),
                 return_type: definition.return_type.name.clone(),
                 used: false,
@@ -1968,10 +1830,7 @@ impl Checker {
 
         self.function_order.push(name.text.clone());
 
-        self.current_function = Some((
-            name.text.clone(),
-            definition.return_type.name.clone(),
-        ));
+        self.current_function = Some((name.text.clone(), definition.return_type.name.clone()));
 
         self.scopes.push(HashMap::new());
 
@@ -2003,32 +1862,17 @@ impl Checker {
     fn check_index_expr(&mut self, index: &Expr) {
         match &index.kind {
             ExprKind::Literal(Value::Num(n)) if *n <= 0.0 => {
-                self.err(
-                    index.span,
-                    "Index must be positive and non-zero",
-                );
+                self.err(index.span, "Index must be positive and non-zero");
             }
 
-            ExprKind::Literal(Value::Num(n))
-                if n.fract() != 0.0 =>
-            {
-                self.err(
-                    index.span,
-                    format!("Index must be an integer, got {}", n),
-                );
+            ExprKind::Literal(Value::Num(n)) if n.fract() != 0.0 => {
+                self.err(index.span, format!("Index must be an integer, got {}", n));
             }
 
             ExprKind::Unary(op, inner)
-                if op == "-"
-                    && matches!(
-                        &inner.kind,
-                        ExprKind::Literal(Value::Num(_))
-                    ) =>
+                if op == "-" && matches!(&inner.kind, ExprKind::Literal(Value::Num(_))) =>
             {
-                self.err(
-                    index.span,
-                    "Index must be positive and non-zero",
-                );
+                self.err(index.span, "Index must be positive and non-zero");
             }
 
             _ => {}
@@ -2036,10 +1880,7 @@ impl Checker {
 
         if let Some(ty) = self.expr_type(index) {
             if ty != "num" {
-                self.err(
-                    index.span,
-                    format!("Index must be num, got {}", ty),
-                );
+                self.err(index.span, format!("Index must be num, got {}", ty));
             }
         }
     }
@@ -2084,10 +1925,7 @@ impl Checker {
                     }
                 }
 
-                self.err(
-                    expr.span,
-                    format!("Undefined variable '{}'", name),
-                );
+                self.err(expr.span, format!("Undefined variable '{}'", name));
                 None
             }
 
@@ -2099,18 +1937,12 @@ impl Checker {
                     ("!", "bool") => Some("bool".into()),
 
                     ("-", _) => {
-                        self.err(
-                            expr.span,
-                            format!("Unary '-' requires num, got {}", ty),
-                        );
+                        self.err(expr.span, format!("Unary '-' requires num, got {}", ty));
                         None
                     }
 
                     _ => {
-                        self.err(
-                            expr.span,
-                            format!("Unary '!' requires bool, got {}", ty),
-                        );
+                        self.err(expr.span, format!("Unary '!' requires bool, got {}", ty));
                         None
                     }
                 }
@@ -2123,42 +1955,24 @@ impl Checker {
                 let (a, b) = (left_type?, right_type?);
 
                 let result = match op.as_str() {
-                    "+" | "-" | "*" | "/" | "%" | "^"
-                        if a == "num" && b == "num" =>
-                    {
-                        "num"
-                    }
+                    "+" | "-" | "*" | "/" | "%" | "^" if a == "num" && b == "num" => "num",
 
                     "<" | ">" if a == "num" && b == "num" => "bool",
 
-                    "&&" | "||" if a == "bool" && b == "bool" => {
-                        "bool"
-                    }
+                    "&&" | "||" if a == "bool" && b == "bool" => "bool",
 
                     "==" | "!="
-                        if a == b
-                            && matches!(
-                                a.as_str(),
-                                "num" | "str" | "bool" | "type"
-                            ) =>
+                        if a == b && matches!(a.as_str(), "num" | "str" | "bool" | "type") =>
                     {
                         "bool"
                     }
 
-                    "==" | "!="
-                        if list_inner(&a).is_some()
-                            && list_inner(&b).is_some() =>
-                    {
-                        "bool"
-                    }
+                    "==" | "!=" if list_inner(&a).is_some() && list_inner(&b).is_some() => "bool",
 
                     _ => {
                         self.err(
                             expr.span,
-                            format!(
-                                "Operator '{}' cannot be applied to {} and {}",
-                                op, a, b
-                            ),
+                            format!("Operator '{}' cannot be applied to {} and {}", op, a, b),
                         );
                         return None;
                     }
@@ -2177,28 +1991,17 @@ impl Checker {
                     Some(inner) => Some(inner.to_string()),
 
                     None => {
-                        self.err(
-                            array.span,
-                            format!("Cannot index into {}", array_type),
-                        );
+                        self.err(array.span, format!("Cannot index into {}", array_type));
                         None
                     }
                 }
             }
 
-            ExprKind::Call(name, args) => {
-                self.call_type(name, args, expr.span)
-            }
+            ExprKind::Call(name, args) => self.call_type(name, args, expr.span),
         }
     }
 
-    fn expect_count(
-        &mut self,
-        name: &str,
-        args: &[Expr],
-        count: usize,
-        span: Span,
-    ) -> bool {
+    fn expect_count(&mut self, name: &str, args: &[Expr], count: usize, span: Span) -> bool {
         if args.len() == count {
             return true;
         }
@@ -2220,22 +2023,14 @@ impl Checker {
         false
     }
 
-    fn call_type(
-        &mut self,
-        name: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<String> {
+    fn call_type(&mut self, name: &str, args: &[Expr], span: Span) -> Option<String> {
         match name {
             "output" | "typeOf" => {
                 if self.expect_count(name, args, 1, span) {
                     self.expr_type(&args[0]);
                 }
 
-                Some(
-                    if name == "output" { "none" } else { "type" }
-                        .into(),
-                )
+                Some(if name == "output" { "none" } else { "type" }.into())
             }
 
             "length" => {
@@ -2244,10 +2039,7 @@ impl Checker {
                         if ty != "str" && list_inner(&ty).is_none() {
                             self.err(
                                 args[0].span,
-                                format!(
-                                    "length() requires a string or list, got {}",
-                                    ty
-                                ),
+                                format!("length() requires a string or list, got {}", ty),
                             );
                         }
                     }
@@ -2293,10 +2085,7 @@ impl Checker {
                     if ty != inner {
                         self.err(
                             args[2].span,
-                            format!(
-                                "Cannot insert {} into {}",
-                                ty, list_type
-                            ),
+                            format!("Cannot insert {} into {}", ty, list_type),
                         );
                     }
                 }
@@ -2305,42 +2094,30 @@ impl Checker {
             }
 
             _ => {
-                let arg_types: Vec<Option<String>> = args
-                    .iter()
-                    .map(|arg| self.expr_type(arg))
-                    .collect();
+                let arg_types: Vec<Option<String>> =
+                    args.iter().map(|arg| self.expr_type(arg)).collect();
 
                 let recursive = matches!(
                     &self.current_function,
                     Some((current, _)) if current == name
                 );
 
-                let (params, return_type) =
-                    match self.functions.get_mut(name) {
-                        Some(info) => {
-                            if !recursive {
-                                info.used = true;
-                            }
-
-                            (
-                                info.params.clone(),
-                                info.return_type.clone(),
-                            )
+                let (params, return_type) = match self.functions.get_mut(name) {
+                    Some(info) => {
+                        if !recursive {
+                            info.used = true;
                         }
 
-                        None => {
-                            self.err(
-                                span,
-                                format!("Unknown function '{}'", name),
-                            );
-                            return None;
-                        }
-                    };
+                        (info.params.clone(), info.return_type.clone())
+                    }
 
-                let required = params
-                    .iter()
-                    .filter(|(_, default)| !*default)
-                    .count();
+                    None => {
+                        self.err(span, format!("Unknown function '{}'", name));
+                        return None;
+                    }
+                };
+
+                let required = params.iter().filter(|(_, default)| !*default).count();
 
                 if args.len() < required || args.len() > params.len() {
                     self.err(
@@ -2398,17 +2175,9 @@ struct Interpreter {
     return_types: Vec<String>,
 }
 
-fn resolve_index(
-    n: f64,
-    length: usize,
-    is_insert: bool,
-    span: Span,
-) -> EResult<usize> {
+fn resolve_index(n: f64, length: usize, is_insert: bool, span: Span) -> EResult<usize> {
     if !n.is_finite() {
-        return Err(Diagnostic::new(
-            span,
-            "Index must be a finite number",
-        ));
+        return Err(Diagnostic::new(span, "Index must be a finite number"));
     }
 
     if n.fract() != 0.0 {
@@ -2419,16 +2188,13 @@ fn resolve_index(
     }
 
     if n <= 0.0 {
-        return Err(Diagnostic::new(
-            span,
-            "Index must be positive and non-zero",
-        ));
+        return Err(Diagnostic::new(span, "Index must be positive and non-zero"));
     }
 
     let maximum = if is_insert {
-        length.checked_add(1).ok_or_else(|| {
-            Diagnostic::new(span, "List size out of range")
-        })?
+        length
+            .checked_add(1)
+            .ok_or_else(|| Diagnostic::new(span, "List size out of range"))?
     } else {
         length
     };
@@ -2447,10 +2213,7 @@ fn resolve_index(
     let index = n as usize;
 
     if index == 0 || index > maximum {
-        return Err(Diagnostic::new(
-            span,
-            "Index out of bounds",
-        ));
+        return Err(Diagnostic::new(span, "Index out of bounds"));
     }
 
     Ok(index - 1)
@@ -2466,10 +2229,7 @@ impl Interpreter {
     }
 
     fn lookup(&self, name: &str) -> Option<&Variable> {
-        self.scopes
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(name))
+        self.scopes.iter().rev().find_map(|scope| scope.get(name))
     }
 
     fn target_mut(&mut self, name: &Name) -> EResult<&mut Variable> {
@@ -2478,10 +2238,7 @@ impl Interpreter {
             .iter()
             .rposition(|scope| scope.contains_key(&name.text))
             .ok_or_else(|| {
-                Diagnostic::new(
-                    name.span,
-                    format!("Undefined variable '{}'", name.text),
-                )
+                Diagnostic::new(name.span, format!("Undefined variable '{}'", name.text))
             })?;
 
         if index == 0 && !self.return_types.is_empty() {
@@ -2494,14 +2251,9 @@ impl Interpreter {
             ));
         }
 
-        self.scopes[index]
-            .get_mut(&name.text)
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    name.span,
-                    format!("Undefined variable '{}'", name.text),
-                )
-            })
+        self.scopes[index].get_mut(&name.text).ok_or_else(|| {
+            Diagnostic::new(name.span, format!("Undefined variable '{}'", name.text))
+        })
     }
 
     fn run(&mut self, program: &[Stmt]) -> EResult<()> {
@@ -2522,10 +2274,7 @@ impl Interpreter {
         result
     }
 
-    fn execute_block(
-        &mut self,
-        statements: &[Stmt],
-    ) -> EResult<Option<Value>> {
+    fn execute_block(&mut self, statements: &[Stmt]) -> EResult<Option<Value>> {
         for stmt in statements {
             if let Some(value) = self.execute_stmt(stmt)? {
                 return Ok(Some(value));
@@ -2538,9 +2287,7 @@ impl Interpreter {
     fn execute_stmt(&mut self, stmt: &Stmt) -> EResult<Option<Value>> {
         match &stmt.kind {
             Statement::Function(definition) => {
-                if self.scopes.len() != 1
-                    || !self.return_types.is_empty()
-                {
+                if self.scopes.len() != 1 || !self.return_types.is_empty() {
                     return Err(Diagnostic::new(
                         definition.name.span,
                         "Functions can only be declared at the top level",
@@ -2552,17 +2299,12 @@ impl Interpreter {
                 {
                     return Err(Diagnostic::new(
                         definition.name.span,
-                        format!(
-                            "'{}' is already declared",
-                            definition.name.text
-                        ),
+                        format!("'{}' is already declared", definition.name.text),
                     ));
                 }
 
-                self.functions.insert(
-                    definition.name.text.clone(),
-                    definition.clone(),
-                );
+                self.functions
+                    .insert(definition.name.text.clone(), definition.clone());
             }
 
             Statement::Declare {
@@ -2589,10 +2331,7 @@ impl Interpreter {
                 if scope.contains_key(&name.text) {
                     return Err(Diagnostic::new(
                         name.span,
-                        format!(
-                            "'{}' is already declared in this scope",
-                            name.text
-                        ),
+                        format!("'{}' is already declared in this scope", name.text),
                     ));
                 }
 
@@ -2648,20 +2387,12 @@ impl Interpreter {
                             other => {
                                 return Err(Diagnostic::new(
                                     index.span,
-                                    format!(
-                                        "Index must be num, got {}",
-                                        other.type_name()
-                                    ),
+                                    format!("Index must be num, got {}", other.type_name()),
                                 ));
                             }
                         };
 
-                        let resolved = resolve_index(
-                            n,
-                            elements.len(),
-                            false,
-                            index.span,
-                        )?;
+                        let resolved = resolve_index(n, elements.len(), false, index.span)?;
 
                         elements[resolved] = new_value;
                     }
@@ -2669,10 +2400,7 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             name.span,
-                            format!(
-                                "Cannot index into {}",
-                                other.type_name()
-                            ),
+                            format!("Cannot index into {}", other.type_name()),
                         ));
                     }
                 }
@@ -2686,16 +2414,9 @@ impl Interpreter {
                 declared_type,
                 value,
             } => {
-                let expected = self
-                    .return_types
-                    .last()
-                    .cloned()
-                    .ok_or_else(|| {
-                        Diagnostic::new(
-                            stmt.span,
-                            "return is only allowed inside a function",
-                        )
-                    })?;
+                let expected = self.return_types.last().cloned().ok_or_else(|| {
+                    Diagnostic::new(stmt.span, "return is only allowed inside a function")
+                })?;
 
                 if declared_type.name != expected {
                     return Err(Diagnostic::new(
@@ -2734,10 +2455,7 @@ impl Interpreter {
                         other => {
                             return Err(Diagnostic::new(
                                 condition.span,
-                                format!(
-                                    "if condition must be bool, got {}",
-                                    other.type_name()
-                                ),
+                                format!("if condition must be bool, got {}", other.type_name()),
                             ));
                         }
                     };
@@ -2759,10 +2477,7 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             condition.span,
-                            format!(
-                                "cycle condition must be bool, got {}",
-                                other.type_name()
-                            ),
+                            format!("cycle condition must be bool, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -2771,9 +2486,7 @@ impl Interpreter {
                     break;
                 }
 
-                if let Some(value) =
-                    self.run_scoped(body, HashMap::new())?
-                {
+                if let Some(value) = self.run_scoped(body, HashMap::new())? {
                     return Ok(Some(value));
                 }
             },
@@ -2783,22 +2496,16 @@ impl Interpreter {
                 list_expr,
                 body,
             } => {
-                let (inner, elements) =
-                    match self.evaluate(list_expr)? {
-                        Value::List(inner, elements) => {
-                            (inner, elements)
-                        }
+                let (inner, elements) = match self.evaluate(list_expr)? {
+                    Value::List(inner, elements) => (inner, elements),
 
-                        other => {
-                            return Err(Diagnostic::new(
-                                list_expr.span,
-                                format!(
-                                    "cycle .. in .. requires a list, got {}",
-                                    other.type_name()
-                                ),
-                            ));
-                        }
-                    };
+                    other => {
+                        return Err(Diagnostic::new(
+                            list_expr.span,
+                            format!("cycle .. in .. requires a list, got {}", other.type_name()),
+                        ));
+                    }
+                };
 
                 // elements is a separate snapshot of the list.
                 for element in elements {
@@ -2836,9 +2543,7 @@ impl Interpreter {
                         }
 
                         InterpolatedPart::Expr(inner) => {
-                            result.push_str(
-                                &self.evaluate(inner)?.display(),
-                            );
+                            result.push_str(&self.evaluate(inner)?.display());
                         }
                     }
                 }
@@ -2873,10 +2578,7 @@ impl Interpreter {
                 .lookup(name)
                 .map(|variable| variable.value.clone())
                 .ok_or_else(|| {
-                    Diagnostic::new(
-                        expr.span,
-                        format!("Undefined variable '{}'", name),
-                    )
+                    Diagnostic::new(expr.span, format!("Undefined variable '{}'", name))
                 }),
 
             ExprKind::Index(array, index) => {
@@ -2889,10 +2591,7 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             array.span,
-                            format!(
-                                "Cannot index into {}",
-                                other.type_name()
-                            ),
+                            format!("Cannot index into {}", other.type_name()),
                         ));
                     }
                 };
@@ -2903,20 +2602,12 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             index.span,
-                            format!(
-                                "Index must be num, got {}",
-                                other.type_name()
-                            ),
+                            format!("Index must be num, got {}", other.type_name()),
                         ));
                     }
                 };
 
-                let index = resolve_index(
-                    n,
-                    elements.len(),
-                    false,
-                    index.span,
-                )?;
+                let index = resolve_index(n, elements.len(), false, index.span)?;
 
                 Ok(elements[index].clone())
             }
@@ -2929,33 +2620,22 @@ impl Interpreter {
                         let result = -n;
 
                         if !result.is_finite() {
-                            return Err(Diagnostic::new(
-                                expr.span,
-                                "Numeric result out of range",
-                            ));
+                            return Err(Diagnostic::new(expr.span, "Numeric result out of range"));
                         }
 
                         Ok(Value::Num(result))
                     }
 
-                    ("!", Value::Bool(value)) => {
-                        Ok(Value::Bool(!value))
-                    }
+                    ("!", Value::Bool(value)) => Ok(Value::Bool(!value)),
 
                     ("-", other) => Err(Diagnostic::new(
                         expr.span,
-                        format!(
-                            "Unary '-' requires num, got {}",
-                            other.type_name()
-                        ),
+                        format!("Unary '-' requires num, got {}", other.type_name()),
                     )),
 
                     (_, other) => Err(Diagnostic::new(
                         expr.span,
-                        format!(
-                            "Unary '!' requires bool, got {}",
-                            other.type_name()
-                        ),
+                        format!("Unary '!' requires bool, got {}", other.type_name()),
                     )),
                 }
             }
@@ -2991,107 +2671,57 @@ impl Interpreter {
                 let b = self.evaluate(right)?;
 
                 let result = match (a, op.as_str(), b) {
-                    (Value::Num(a), "+", Value::Num(b)) => {
-                        Value::Num(a + b)
+                    (Value::Num(a), "+", Value::Num(b)) => Value::Num(a + b),
+
+                    (Value::Num(a), "-", Value::Num(b)) => Value::Num(a - b),
+
+                    (Value::Num(a), "*", Value::Num(b)) => Value::Num(a * b),
+
+                    (Value::Num(_), "/", Value::Num(b)) if b == 0.0 => {
+                        return Err(Diagnostic::new(expr.span, "Division by zero"));
                     }
 
-                    (Value::Num(a), "-", Value::Num(b)) => {
-                        Value::Num(a - b)
+                    (Value::Num(a), "/", Value::Num(b)) => Value::Num(a / b),
+
+                    (Value::Num(_), "%", Value::Num(b)) if b == 0.0 => {
+                        return Err(Diagnostic::new(expr.span, "Modulo by zero"));
                     }
 
-                    (Value::Num(a), "*", Value::Num(b)) => {
-                        Value::Num(a * b)
+                    (Value::Num(a), "%", Value::Num(b)) => Value::Num(a % b),
+
+                    (Value::Num(a), "^", Value::Num(b)) => Value::Num(a.powf(b)),
+
+                    (Value::Num(a), "==", Value::Num(b)) => Value::Bool(a == b),
+
+                    (Value::Num(a), "!=", Value::Num(b)) => Value::Bool(a != b),
+
+                    (Value::Num(a), "<", Value::Num(b)) => Value::Bool(a < b),
+
+                    (Value::Num(a), ">", Value::Num(b)) => Value::Bool(a > b),
+
+                    (Value::Str(a), "==", Value::Str(b)) => Value::Bool(a == b),
+
+                    (Value::Str(a), "!=", Value::Str(b)) => Value::Bool(a != b),
+
+                    (Value::Bool(a), "==", Value::Bool(b)) => Value::Bool(a == b),
+
+                    (Value::Bool(a), "!=", Value::Bool(b)) => Value::Bool(a != b),
+
+                    (Value::Bool(a), "&&", Value::Bool(b)) => Value::Bool(a && b),
+
+                    (Value::Bool(a), "||", Value::Bool(b)) => Value::Bool(a || b),
+
+                    (Value::Type(a), "==", Value::Type(b)) => Value::Bool(a == b),
+
+                    (Value::Type(a), "!=", Value::Type(b)) => Value::Bool(a != b),
+
+                    (Value::List(a_type, a), "==", Value::List(b_type, b)) => {
+                        Value::Bool(a_type == b_type && a == b)
                     }
 
-                    (Value::Num(_), "/", Value::Num(b))
-                        if b == 0.0 =>
-                    {
-                        return Err(Diagnostic::new(
-                            expr.span,
-                            "Division by zero",
-                        ));
+                    (Value::List(a_type, a), "!=", Value::List(b_type, b)) => {
+                        Value::Bool(a_type != b_type || a != b)
                     }
-
-                    (Value::Num(a), "/", Value::Num(b)) => {
-                        Value::Num(a / b)
-                    }
-
-                    (Value::Num(_), "%", Value::Num(b))
-                        if b == 0.0 =>
-                    {
-                        return Err(Diagnostic::new(
-                            expr.span,
-                            "Modulo by zero",
-                        ));
-                    }
-
-                    (Value::Num(a), "%", Value::Num(b)) => {
-                        Value::Num(a % b)
-                    }
-
-                    (Value::Num(a), "^", Value::Num(b)) => {
-                        Value::Num(a.powf(b))
-                    }
-
-                    (Value::Num(a), "==", Value::Num(b)) => {
-                        Value::Bool(a == b)
-                    }
-
-                    (Value::Num(a), "!=", Value::Num(b)) => {
-                        Value::Bool(a != b)
-                    }
-
-                    (Value::Num(a), "<", Value::Num(b)) => {
-                        Value::Bool(a < b)
-                    }
-
-                    (Value::Num(a), ">", Value::Num(b)) => {
-                        Value::Bool(a > b)
-                    }
-
-                    (Value::Str(a), "==", Value::Str(b)) => {
-                        Value::Bool(a == b)
-                    }
-
-                    (Value::Str(a), "!=", Value::Str(b)) => {
-                        Value::Bool(a != b)
-                    }
-
-                    (Value::Bool(a), "==", Value::Bool(b)) => {
-                        Value::Bool(a == b)
-                    }
-
-                    (Value::Bool(a), "!=", Value::Bool(b)) => {
-                        Value::Bool(a != b)
-                    }
-
-                    (Value::Bool(a), "&&", Value::Bool(b)) => {
-                        Value::Bool(a && b)
-                    }
-
-                    (Value::Bool(a), "||", Value::Bool(b)) => {
-                        Value::Bool(a || b)
-                    }
-
-                    (Value::Type(a), "==", Value::Type(b)) => {
-                        Value::Bool(a == b)
-                    }
-
-                    (Value::Type(a), "!=", Value::Type(b)) => {
-                        Value::Bool(a != b)
-                    }
-
-                    (
-                        Value::List(a_type, a),
-                        "==",
-                        Value::List(b_type, b),
-                    ) => Value::Bool(a_type == b_type && a == b),
-
-                    (
-                        Value::List(a_type, a),
-                        "!=",
-                        Value::List(b_type, b),
-                    ) => Value::Bool(a_type != b_type || a != b),
 
                     (a, op, b) => {
                         return Err(Diagnostic::new(
@@ -3108,28 +2738,18 @@ impl Interpreter {
 
                 if let Value::Num(n) = &result {
                     if !n.is_finite() {
-                        return Err(Diagnostic::new(
-                            expr.span,
-                            "Numeric result out of range",
-                        ));
+                        return Err(Diagnostic::new(expr.span, "Numeric result out of range"));
                     }
                 }
 
                 Ok(result)
             }
 
-            ExprKind::Call(name, args) => {
-                self.call(name, args, expr.span)
-            }
+            ExprKind::Call(name, args) => self.call(name, args, expr.span),
         }
     }
 
-    fn check_count(
-        name: &str,
-        actual: usize,
-        expected: usize,
-        span: Span,
-    ) -> EResult<()> {
+    fn check_count(name: &str, actual: usize, expected: usize, span: Span) -> EResult<()> {
         if actual == expected {
             Ok(())
         } else {
@@ -3143,12 +2763,7 @@ impl Interpreter {
         }
     }
 
-    fn call(
-        &mut self,
-        name: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> EResult<Value> {
+    fn call(&mut self, name: &str, args: &[Expr], span: Span) -> EResult<Value> {
         match name {
             "output" => {
                 Self::check_count(name, args.len(), 1, span)?;
@@ -3158,25 +2773,15 @@ impl Interpreter {
 
                 let mut stdout = io::stdout().lock();
 
-                write!(stdout, "{}", text).map_err(|e| {
-                    Diagnostic::new(
-                        span,
-                        format!("Failed to write output: {}", e),
-                    )
-                })?;
+                write!(stdout, "{}", text)
+                    .map_err(|e| Diagnostic::new(span, format!("Failed to write output: {}", e)))?;
 
-                stdout.flush().map_err(|e| {
-                    Diagnostic::new(
-                        span,
-                        format!("Failed to flush output: {}", e),
-                    )
-                })?;
+                stdout
+                    .flush()
+                    .map_err(|e| Diagnostic::new(span, format!("Failed to flush output: {}", e)))?;
 
                 if !text.is_empty() {
-                    OUTPUT_LINE_OPEN.store(
-                        !text.ends_with('\n'),
-                        Ordering::Relaxed,
-                    );
+                    OUTPUT_LINE_OPEN.store(!text.ends_with('\n'), Ordering::Relaxed);
                 }
 
                 return Ok(Value::Null);
@@ -3193,13 +2798,9 @@ impl Interpreter {
                 Self::check_count(name, args.len(), 1, span)?;
 
                 return match self.evaluate(&args[0])? {
-                    Value::Str(text) => {
-                        Ok(Value::Num(text.chars().count() as f64))
-                    }
+                    Value::Str(text) => Ok(Value::Num(text.chars().count() as f64)),
 
-                    Value::List(_, elements) => {
-                        Ok(Value::Num(elements.len() as f64))
-                    }
+                    Value::List(_, elements) => Ok(Value::Num(elements.len() as f64)),
 
                     other => Err(Diagnostic::new(
                         args[0].span,
@@ -3224,10 +2825,7 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             args[0].span,
-                            format!(
-                                "insert() expects a list, got {}",
-                                other.type_name()
-                            ),
+                            format!("insert() expects a list, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -3238,10 +2836,7 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             args[1].span,
-                            format!(
-                                "Index must be num, got {}",
-                                other.type_name()
-                            ),
+                            format!("Index must be num, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -3249,20 +2844,11 @@ impl Interpreter {
                 if element.type_name() != inner {
                     return Err(Diagnostic::new(
                         args[2].span,
-                        format!(
-                            "Cannot insert {} into ls<{}>",
-                            element.type_name(),
-                            inner
-                        ),
+                        format!("Cannot insert {} into ls<{}>", element.type_name(), inner),
                     ));
                 }
 
-                let index = resolve_index(
-                    n,
-                    elements.len(),
-                    true,
-                    args[1].span,
-                )?;
+                let index = resolve_index(n, elements.len(), true, args[1].span)?;
 
                 elements.insert(index, element);
 
@@ -3281,10 +2867,7 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             args[0].span,
-                            format!(
-                                "remove() expects a list, got {}",
-                                other.type_name()
-                            ),
+                            format!("remove() expects a list, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -3295,20 +2878,12 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             args[1].span,
-                            format!(
-                                "Index must be num, got {}",
-                                other.type_name()
-                            ),
+                            format!("Index must be num, got {}", other.type_name()),
                         ));
                     }
                 };
 
-                let index = resolve_index(
-                    n,
-                    elements.len(),
-                    false,
-                    args[1].span,
-                )?;
+                let index = resolve_index(n, elements.len(), false, args[1].span)?;
 
                 elements.remove(index);
 
@@ -3322,12 +2897,7 @@ impl Interpreter {
             .functions
             .get(name)
             .cloned()
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    span,
-                    format!("Unknown function '{}'", name),
-                )
-            })?;
+            .ok_or_else(|| Diagnostic::new(span, format!("Unknown function '{}'", name)))?;
 
         let required = definition
             .parameters
@@ -3335,9 +2905,7 @@ impl Interpreter {
             .filter(|p| p.default.is_none())
             .count();
 
-        if args.len() < required
-            || args.len() > definition.parameters.len()
-        {
+        if args.len() < required || args.len() > definition.parameters.len() {
             return Err(Diagnostic::new(
                 span,
                 format!(
@@ -3360,8 +2928,7 @@ impl Interpreter {
         // A function cannot see the caller's local variables.
         let saved_scopes = self.scopes.split_off(1);
 
-        self.return_types
-            .push(definition.return_type.name.clone());
+        self.return_types.push(definition.return_type.name.clone());
 
         let result = self.call_inner(&definition, values);
 
@@ -3385,17 +2952,14 @@ impl Interpreter {
                 Some(value) => value,
 
                 None => match &parameter.default {
-                    Some(default) => {
-                        (self.evaluate(default)?, default.span)
-                    }
+                    Some(default) => (self.evaluate(default)?, default.span),
 
                     None => {
                         return Err(Diagnostic::new(
                             parameter.name.span,
                             format!(
                                 "Missing argument '{}' for '{}'",
-                                parameter.name.text,
-                                definition.name.text
+                                parameter.name.text, definition.name.text
                             ),
                         ));
                     }
@@ -3467,9 +3031,7 @@ enum Failure {
 fn parse_source(source: &str) -> Result<Vec<Stmt>, Failure> {
     let tokens = lex(source).map_err(Failure::Syntax)?;
 
-    Parser::new(tokens)
-        .parse_program()
-        .map_err(Failure::Syntax)
+    Parser::new(tokens).parse_program().map_err(Failure::Syntax)
 }
 
 fn check_source(source: &str) -> Result<Vec<Stmt>, Failure> {
@@ -3486,9 +3048,7 @@ fn check_source(source: &str) -> Result<Vec<Stmt>, Failure> {
 fn execute(source: &str) -> Result<(), Failure> {
     let program = check_source(source)?;
 
-    Interpreter::new()
-        .run(&program)
-        .map_err(Failure::Runtime)
+    Interpreter::new().run(&program).map_err(Failure::Runtime)
 }
 
 fn main() {
@@ -3516,13 +3076,11 @@ fn main() {
     };
 
     let result = match command.as_str() {
-        "tokens" => lex(&source)
-            .map_err(Failure::Syntax)
-            .map(|tokens| {
-                for token in tokens {
-                    println!("{:?}", token);
-                }
-            }),
+        "tokens" => lex(&source).map_err(Failure::Syntax).map(|tokens| {
+            for token in tokens {
+                println!("{:?}", token);
+            }
+        }),
 
         "parse" => parse_source(&source).map(|program| {
             for stmt in program {
@@ -3530,8 +3088,7 @@ fn main() {
             }
         }),
 
-        "check" => check_source(&source)
-            .map(|_| println!("OK: no static errors")),
+        "check" => check_source(&source).map(|_| println!("OK: no static errors")),
 
         "run" => execute(&source),
 
@@ -3550,32 +3107,17 @@ fn main() {
 
         match failure {
             Failure::Syntax(diagnostic) => {
-                print_diagnostic(
-                    "Syntax error",
-                    path,
-                    &source,
-                    &diagnostic,
-                );
+                print_diagnostic("Syntax error", path, &source, &diagnostic);
             }
 
             Failure::Static(diagnostics) => {
                 for diagnostic in diagnostics {
-                    print_diagnostic(
-                        "Static error",
-                        path,
-                        &source,
-                        &diagnostic,
-                    );
+                    print_diagnostic("Static error", path, &source, &diagnostic);
                 }
             }
 
             Failure::Runtime(diagnostic) => {
-                print_diagnostic(
-                    "Runtime error",
-                    path,
-                    &source,
-                    &diagnostic,
-                );
+                print_diagnostic("Runtime error", path, &source, &diagnostic);
             }
         }
 
