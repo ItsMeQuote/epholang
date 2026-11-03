@@ -14,7 +14,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Epholang version. DO NOT TYPE LATEST; WE WILL CLOSE ISSUE IMMEDIATELY.
+      label: Epholang version
+      description: "Provide the exact version. Do not write 'latest'. Issues without an exact version may be closed."
       placeholder: "0.1.0"
     validations:
       required: true
