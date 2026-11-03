@@ -1,0 +1,65 @@
+
+name: "✨ Feature request"
+description: Suggest a new feature or improvement for Epholang
+title: "[FEATURE] "
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement to Epholang!
+
+        Please explain what problem your proposal would solve.
+        Keep in mind that not every suggestion will be implemented.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem or limitation does this feature address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe how you think this feature should work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: syntax
+    attributes:
+      label: Suggested syntax
+      description: |
+        If your proposal introduces new syntax, provide an example.
+        This is optional.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: philosophy
+    attributes:
+      label: Why should this be part of Epholang?
+      description: |
+        Explain how this feature fits Epholang's design principles.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Have you considered other approaches?
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional information
+    validations:
+      required: false
