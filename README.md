@@ -28,7 +28,7 @@
 
 ---
 
-[**English**](README.md) | [Русский](README.ru.md)
+[ [**English**](README.md) | [Русский](README.ru.md) ]
 
 Epholang is a programming language built around a few simple ideas:
 
