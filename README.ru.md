@@ -18,7 +18,7 @@
   <a href="https://github.com/ItsMeQuote/epholang/actions/workflows/ci.yml"><img src="https://github.com/ItsMeQuote/epholang/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-<p align="center"><a href="README.md">English</a> · <strong>Русский</strong></p>
+<p align="center"><a href="README.md">English</a> &bull; <strong>Русский</strong></p>
 
 ---
 
