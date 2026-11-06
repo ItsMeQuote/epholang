@@ -1,0 +1,5 @@
+items ls<int> := list<int>{10, 20, 30}
+items = Insert(items, 2, 15)
+Output("#{items}\n")
+Output("Count: #{Length(items)}\n")
+Output("Contains 15: #{Includes(items, 15)}\n")

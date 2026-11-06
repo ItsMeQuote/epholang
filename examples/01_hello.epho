@@ -1,0 +1,2 @@
+/* Hello, Epholang! */
+Output("Hello, Epholang!\n")

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static OUTPUT_LINE_OPEN: AtomicBool = AtomicBool::new(false);
@@ -113,7 +113,8 @@ enum StringPart {
 #[derive(Debug, Clone, PartialEq)]
 enum TokenKind {
     Identifier(String),
-    Number(f64),
+    Integer(i64),
+    Float(f64),
     String(String),
     Interpolated(Vec<StringPart>),
     Symbol(String),
@@ -436,18 +437,22 @@ fn lex_chars(chars: &[SourceChar], eof_span: Span) -> EResult<Vec<Token>> {
             let span = range_span(chars, start, i);
             let text: String = chars[start..i].iter().map(|c| c.ch).collect();
 
-            let number = text
-                .parse::<f64>()
-                .map_err(|_| Diagnostic::new(span, "Invalid number"))?;
+            let kind = if text.contains('.') {
+                let value = text
+                    .parse::<f64>()
+                    .map_err(|_| Diagnostic::new(span, "Invalid floating-point number"))?;
+                if !value.is_finite() {
+                    return Err(Diagnostic::new(span, "Floating-point number out of range"));
+                }
+                TokenKind::Float(value)
+            } else {
+                let value = text
+                    .parse::<i64>()
+                    .map_err(|_| Diagnostic::new(span, "Integer literal out of i64 range"))?;
+                TokenKind::Integer(value)
+            };
 
-            if !number.is_finite() {
-                return Err(Diagnostic::new(span, "Number out of range"));
-            }
-
-            tokens.push(Token {
-                kind: TokenKind::Number(number),
-                span,
-            });
+            tokens.push(Token { kind, span });
 
             continue;
         }
@@ -486,7 +491,7 @@ fn lex_chars(chars: &[SourceChar], eof_span: Span) -> EResult<Vec<Token>> {
             continue;
         }
 
-        if "+-*/%^(){}[],;=<>!".contains(c) {
+        if "+-*/%^(){}[],;=<>!:".contains(c) {
             tokens.push(Token {
                 kind: TokenKind::Symbol(c.to_string()),
                 span: chars[i].span,
@@ -516,7 +521,8 @@ fn lex_chars(chars: &[SourceChar], eof_span: Span) -> EResult<Vec<Token>> {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Value {
-    Num(f64),
+    Int(i64),
+    Flt(f64),
     Str(String),
     Bool(bool),
     Null,
@@ -527,7 +533,8 @@ enum Value {
 impl Value {
     fn type_name(&self) -> String {
         match self {
-            Value::Num(_) => "num".into(),
+            Value::Int(_) => "int".into(),
+            Value::Flt(_) => "flt".into(),
             Value::Str(_) => "str".into(),
             Value::Bool(_) => "bool".into(),
             Value::Null => "none".into(),
@@ -538,22 +545,8 @@ impl Value {
 
     fn display(&self) -> String {
         match self {
-            Value::Num(n) if *n == 0.0 => "0".into(),
-            Value::Num(n) if n.fract() == 0.0 => format!("{:.0}", n),
-
-            Value::Num(n) => {
-                let mut text = format!("{:.15}", n);
-
-                while text.contains('.') && text.ends_with('0') {
-                    text.pop();
-                }
-
-                if text.ends_with('.') {
-                    text.pop();
-                }
-
-                text
-            }
+            Value::Int(n) => n.to_string(),
+            Value::Flt(n) => n.to_string(),
 
             Value::Str(s) => s.clone(),
             Value::Bool(b) => b.to_string(),
@@ -569,11 +562,47 @@ impl Value {
     }
 }
 
-const ELEMENT_TYPES: [&str; 4] = ["num", "str", "bool", "none"];
+// Only simple types and one-level lists are public in 0.2.0.
+// A structural type model is prepared for a future union-type release.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Type {
+    Int,
+    Flt,
+    Str,
+    Bool,
+    None,
+    Meta,
+    List(Box<Type>),
+    Union(Vec<Type>),
+}
+
+impl Type {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "int" => Some(Self::Int),
+            "flt" => Some(Self::Flt),
+            "str" => Some(Self::Str),
+            "bool" => Some(Self::Bool),
+            "none" => Some(Self::None),
+            "type" => Some(Self::Meta),
+            _ => {
+                let inner = name.strip_prefix("ls<")?.strip_suffix('>')?;
+                match Self::from_name(inner)? {
+                    ty @ (Self::Int | Self::Flt | Self::Str | Self::Bool | Self::None) => {
+                        Some(Self::List(Box::new(ty)))
+                    }
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+
+const ELEMENT_TYPES: [&str; 5] = ["int", "flt", "str", "bool", "none"];
 
 fn valid_type(name: &str) -> bool {
-    matches!(name, "num" | "str" | "bool" | "none" | "type")
-        || list_inner(name).is_some_and(|inner| ELEMENT_TYPES.contains(&inner))
+    Type::from_name(name).is_some()
 }
 
 fn list_inner(name: &str) -> Option<&str> {
@@ -594,28 +623,33 @@ struct TypeAnn {
 
 fn check_reserved(name: &Name) -> EResult<()> {
     let reserved = [
-        "num",
+        "int",
+        "flt",
         "str",
         "bool",
         "none",
         "type",
         "ls",
         "list",
-        "length",
-        "output",
-        "insert",
-        "remove",
-        "typeOf",
+        "Length",
+        "Output",
+        "Input",
+        "Includes",
+        "Insert",
+        "Remove",
+        "TypeOf",
         "true",
         "false",
         "null",
-        "cycle",
+        "loop",
         "if",
         "otherwise",
         "return",
         "func",
         "function",
         "in",
+        "import",
+        "as",
     ];
 
     if reserved.contains(&name.text.as_str()) {
@@ -639,7 +673,6 @@ fn check_reserved(name: &Name) -> EResult<()> {
 struct Parameter {
     name: Name,
     declared_type: TypeAnn,
-    default: Option<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -677,6 +710,11 @@ enum ExprKind {
     Unary(String, Box<Expr>),
     Binary(Box<Expr>, String, Box<Expr>),
     Call(String, Vec<Expr>),
+    ModuleCall {
+        module: Name,
+        function: Name,
+        args: Vec<Expr>,
+    },
     Index(Box<Expr>, Box<Expr>),
 }
 
@@ -688,6 +726,11 @@ struct Stmt {
 
 #[derive(Debug, Clone)]
 enum Statement {
+    Import {
+        path: String,
+        alias: Name,
+    },
+
     Declare {
         name: Name,
         declared_type: TypeAnn,
@@ -886,52 +929,33 @@ impl Parser {
         Ok(statements)
     }
 
-    fn parse_function(&mut self, name: Name) -> EResult<Statement> {
-        self.advance(); // func
-        self.advance(); // :=
+    fn parse_function(&mut self) -> EResult<Statement> {
         self.advance(); // function
-
+        let name = self.expect_name()?;
+        check_reserved(&name)?;
         self.expect_symbol("(")?;
+        self.skip_newlines();
 
         let mut parameters: Vec<Parameter> = Vec::new();
-        let mut saw_default = false;
-
         if !self.symbol(")") {
             loop {
                 let parameter_name = self.expect_name()?;
                 check_reserved(&parameter_name)?;
-
                 let parameter_type = self.parse_type()?;
-
-                if parameter_type.name == "type" {
-                    return Err(Diagnostic::new(
-                        parameter_type.span,
-                        "Function parameters cannot be of type 'type'",
-                    ));
-                }
-
-                if !valid_type(&parameter_type.name) || parameter_type.name == "none" {
+                if !valid_type(&parameter_type.name)
+                    || matches!(parameter_type.name.as_str(), "none" | "type")
+                {
                     return Err(Diagnostic::new(
                         parameter_type.span,
                         "Invalid parameter type",
                     ));
                 }
-
-                let default = if self.symbol("=") {
-                    self.advance();
-                    saw_default = true;
-                    Some(self.parse_expression(0)?)
-                } else {
-                    if saw_default {
-                        return Err(Diagnostic::new(
-                            parameter_name.span,
-                            "Required parameters cannot follow default parameters",
-                        ));
-                    }
-
-                    None
-                };
-
+                if self.symbol("=") {
+                    return Err(Diagnostic::new(
+                        self.current().span,
+                        "Default parameters are no longer supported",
+                    ));
+                }
                 if parameters
                     .iter()
                     .any(|p| p.name.text == parameter_name.text)
@@ -941,16 +965,14 @@ impl Parser {
                         "Duplicate parameter name",
                     ));
                 }
-
                 parameters.push(Parameter {
                     name: parameter_name,
                     declared_type: parameter_type,
-                    default,
                 });
-
+                self.skip_newlines();
                 if self.symbol(",") {
                     self.advance();
-
+                    self.skip_newlines();
                     if self.symbol(")") {
                         break;
                     }
@@ -959,17 +981,12 @@ impl Parser {
                 }
             }
         }
-
         self.expect_symbol(")")?;
-
         let return_type = self.parse_type()?;
-
         if !valid_type(&return_type.name) {
             return Err(Diagnostic::new(return_type.span, "Invalid return type"));
         }
-
         let body = self.parse_block()?;
-
         Ok(Statement::Function(FunctionDef {
             name,
             parameters,
@@ -1017,7 +1034,7 @@ impl Parser {
         })
     }
 
-    fn parse_cycle(&mut self) -> EResult<Statement> {
+    fn parse_loop(&mut self) -> EResult<Statement> {
         self.advance();
 
         if matches!(&self.current().kind, TokenKind::Identifier(_))
@@ -1055,31 +1072,44 @@ impl Parser {
     }
 
     fn parse_statement_kind(&mut self) -> EResult<Statement> {
-        if matches!(&self.current().kind, TokenKind::Identifier(_))
-            && matches!(
-                self.look(1),
-                TokenKind::Identifier(s) if s == "func"
-            )
-            && matches!(
-                self.look(2),
-                TokenKind::Symbol(s) if s == ":="
-            )
-            && matches!(
-                self.look(3),
-                TokenKind::Identifier(s) if s == "function"
-            )
-        {
-            let name = self.expect_name()?;
-            check_reserved(&name)?;
-            return self.parse_function(name);
+        if self.identifier_is("import") {
+            self.advance(); // 'import'
+
+            let path_token = self.advance();
+            let path = match path_token.kind {
+                TokenKind::String(s) => s,
+                _ => {
+                    return Err(Diagnostic::new(
+                        path_token.span,
+                        "Expected a string literal for module path",
+                    ))
+                }
+            };
+
+            if !self.identifier_is("as") {
+                return Err(Diagnostic::new(
+                    self.current().span,
+                    "import requires an alias: import \"...\" as name",
+                ));
+            }
+            self.advance(); // 'as'
+
+            let alias = self.expect_name()?;
+            check_reserved(&alias)?;
+
+            return Ok(Statement::Import { path, alias });
+        }
+
+        if self.identifier_is("function") {
+            return self.parse_function();
         }
 
         if self.identifier_is("if") {
             return self.parse_if();
         }
 
-        if self.identifier_is("cycle") {
-            return self.parse_cycle();
+        if self.identifier_is("loop") {
+            return self.parse_loop();
         }
 
         if self.identifier_is("otherwise") {
@@ -1097,14 +1127,14 @@ impl Parser {
                 TokenKind::Identifier(s)
                     if matches!(
                         s.as_str(),
-                        "num" | "str" | "bool" | "none" | "type" | "ls"
+                        "int" | "flt" | "str" | "bool" | "none" | "type" | "ls"
                     )
             );
 
             if !starts_with_type {
                 return Err(Diagnostic::new(
                     self.current().span,
-                    "Expected a return type after 'return' (e.g. 'return num x')",
+                    "Expected a return type after 'return' (e.g. 'return int x')",
                 ));
             }
 
@@ -1279,7 +1309,8 @@ impl Parser {
         let span = token.span;
 
         let kind = match token.kind {
-            TokenKind::Number(n) => ExprKind::Literal(Value::Num(n)),
+            TokenKind::Integer(n) => ExprKind::Literal(Value::Int(n)),
+            TokenKind::Float(n) => ExprKind::Literal(Value::Flt(n)),
             TokenKind::String(s) => ExprKind::Literal(Value::Str(s)),
 
             TokenKind::Interpolated(parts) => {
@@ -1313,15 +1344,18 @@ impl Parser {
             TokenKind::Identifier(name) if name == "list" => {
                 let inner = self.parse_element_type()?;
                 self.expect_symbol("{")?;
+                self.skip_newlines();
 
                 let mut elements = Vec::new();
 
                 if !self.symbol("}") {
                     loop {
                         elements.push(self.parse_expression(0)?);
+                        self.skip_newlines();
 
                         if self.symbol(",") {
                             self.advance();
+                            self.skip_newlines();
 
                             if self.symbol("}") {
                                 break;
@@ -1337,7 +1371,10 @@ impl Parser {
             }
 
             TokenKind::Identifier(name)
-                if matches!(name.as_str(), "num" | "str" | "bool" | "none" | "type") =>
+                if matches!(
+                    name.as_str(),
+                    "int" | "flt" | "str" | "bool" | "none" | "type"
+                ) =>
             {
                 ExprKind::Literal(Value::Type(name))
             }
@@ -1354,17 +1391,73 @@ impl Parser {
             TokenKind::Identifier(name) if name == "null" => ExprKind::Literal(Value::Null),
 
             TokenKind::Identifier(name) => {
-                if self.symbol("(") {
-                    self.advance();
+                if self.symbol(":") {
+                    let colon_span = self.current().span;
+
+                    if span.line != colon_span.line
+                        || span.column + span.length != colon_span.column
+                    {
+                        return Err(Diagnostic::new(
+                            colon_span,
+                            "Module calls must not contain spaces around ':'",
+                        ));
+                    }
+
+                    self.advance(); // ':'
+                    let function = self.expect_name()?;
+
+                    if function.span.line != colon_span.line
+                        || colon_span.column + 1 != function.span.column
+                    {
+                        return Err(Diagnostic::new(
+                            function.span,
+                            "Module calls must not contain spaces around ':'",
+                        ));
+                    }
+
+                    self.expect_symbol("(")?;
+                    self.skip_newlines();
 
                     let mut args = Vec::new();
 
                     if !self.symbol(")") {
                         loop {
                             args.push(self.parse_expression(0)?);
+                            self.skip_newlines();
 
                             if self.symbol(",") {
                                 self.advance();
+                                self.skip_newlines();
+
+                                if self.symbol(")") {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    self.expect_symbol(")")?;
+                    ExprKind::ModuleCall {
+                        module: Name { text: name, span },
+                        function,
+                        args,
+                    }
+                } else if self.symbol("(") {
+                    self.advance();
+                    self.skip_newlines();
+
+                    let mut args = Vec::new();
+
+                    if !self.symbol(")") {
+                        loop {
+                            args.push(self.parse_expression(0)?);
+                            self.skip_newlines();
+
+                            if self.symbol(",") {
+                                self.advance();
+                                self.skip_newlines();
 
                                 if self.symbol(")") {
                                     break;
@@ -1448,7 +1541,7 @@ struct VarInfo {
 }
 
 struct FuncInfo {
-    params: Vec<(String, bool)>,
+    params: Vec<String>,
     return_type: String,
     used: bool,
     span: Span,
@@ -1460,6 +1553,8 @@ struct Checker {
     function_order: Vec<String>,
     current_function: Option<(String, String)>,
     errors: Vec<Diagnostic>,
+    seen_non_import: bool,
+    imported_paths: Vec<String>,
 }
 
 impl Checker {
@@ -1470,6 +1565,8 @@ impl Checker {
             function_order: Vec::new(),
             current_function: None,
             errors: Vec::new(),
+            seen_non_import: false,
+            imported_paths: Vec::new(),
         }
     }
 
@@ -1625,7 +1722,37 @@ impl Checker {
     }
 
     fn check_stmt(&mut self, stmt: &Stmt) {
+        if let Statement::Import { path, alias } = &stmt.kind {
+            if self.seen_non_import {
+                self.err(
+                    stmt.span,
+                    "import statements must appear at the beginning of the file",
+                );
+            }
+            if !matches!(path.as_str(), "strings" | "math" | "types") {
+                self.err(
+                    stmt.span,
+                    format!(
+                        "Unknown module '{}' (only strings, math and types are supported)",
+                        path
+                    ),
+                );
+                return;
+            }
+            if self.imported_paths.contains(path) {
+                self.err(stmt.span, format!("Module '{}' is already imported", path));
+                return;
+            }
+            self.declare(alias, Some(path.clone()), "module");
+            self.imported_paths.push(path.clone());
+            return;
+        }
+
+        self.seen_non_import = true;
+
         match &stmt.kind {
+            Statement::Import { .. } => unreachable!(),
+
             Statement::Function(definition) => {
                 self.check_function(definition);
             }
@@ -1748,7 +1875,7 @@ impl Checker {
             }
 
             Statement::While { condition, body } => {
-                self.expect_bool(condition, "cycle");
+                self.expect_bool(condition, "loop");
                 self.check_scoped_block(body);
             }
 
@@ -1764,7 +1891,7 @@ impl Checker {
                         None => {
                             self.err(
                                 list_expr.span,
-                                format!("cycle .. in .. requires a list, got {}", ty),
+                                format!("loop .. in .. requires a list, got {}", ty),
                             );
                             None
                         }
@@ -1798,29 +1925,13 @@ impl Checker {
             return;
         }
 
-        for parameter in &definition.parameters {
-            if let Some(default) = &parameter.default {
-                if let Some(ty) = self.expr_type(default) {
-                    if ty != parameter.declared_type.name {
-                        self.err(
-                            default.span,
-                            format!(
-                                "Default value of '{}' expects {}, got {}",
-                                parameter.name.text, parameter.declared_type.name, ty
-                            ),
-                        );
-                    }
-                }
-            }
-        }
-
         self.functions.insert(
             name.text.clone(),
             FuncInfo {
                 params: definition
                     .parameters
                     .iter()
-                    .map(|p| (p.declared_type.name.clone(), p.default.is_some()))
+                    .map(|p| p.declared_type.name.clone())
                     .collect(),
                 return_type: definition.return_type.name.clone(),
                 used: false,
@@ -1861,26 +1972,19 @@ impl Checker {
 
     fn check_index_expr(&mut self, index: &Expr) {
         match &index.kind {
-            ExprKind::Literal(Value::Num(n)) if *n <= 0.0 => {
+            ExprKind::Literal(Value::Int(n)) if *n <= 0 => {
                 self.err(index.span, "Index must be positive and non-zero");
             }
-
-            ExprKind::Literal(Value::Num(n)) if n.fract() != 0.0 => {
-                self.err(index.span, format!("Index must be an integer, got {}", n));
-            }
-
             ExprKind::Unary(op, inner)
-                if op == "-" && matches!(&inner.kind, ExprKind::Literal(Value::Num(_))) =>
+                if op == "-" && matches!(&inner.kind, ExprKind::Literal(Value::Int(_))) =>
             {
                 self.err(index.span, "Index must be positive and non-zero");
             }
-
             _ => {}
         }
-
         if let Some(ty) = self.expr_type(index) {
-            if ty != "num" {
-                self.err(index.span, format!("Index must be num, got {}", ty));
+            if ty != "int" {
+                self.err(index.span, format!("Index must be int, got {}", ty));
             }
         }
     }
@@ -1918,29 +2022,44 @@ impl Checker {
             }
 
             ExprKind::Variable(name) => {
+                let mut found = None;
+
                 for scope in self.scopes.iter_mut().rev() {
                     if let Some(info) = scope.get_mut(name) {
                         info.used = true;
-                        return info.ty.clone();
+                        found = Some((info.kind, info.ty.clone()));
+                        break;
                     }
                 }
 
-                self.err(expr.span, format!("Undefined variable '{}'", name));
-                None
+                match found {
+                    Some(("module", _)) => {
+                        self.err(expr.span, format!("'{}' is a module, not a variable", name));
+                        None
+                    }
+
+                    Some((_, ty)) => ty,
+
+                    None => {
+                        self.err(expr.span, format!("Undefined variable '{}'", name));
+                        None
+                    }
+                }
             }
 
             ExprKind::Unary(op, operand) => {
                 let ty = self.expr_type(operand)?;
 
                 match (op.as_str(), ty.as_str()) {
-                    ("-", "num") => Some("num".into()),
+                    ("-", "int" | "flt") => Some(ty),
                     ("!", "bool") => Some("bool".into()),
-
                     ("-", _) => {
-                        self.err(expr.span, format!("Unary '-' requires num, got {}", ty));
+                        self.err(
+                            expr.span,
+                            format!("Unary '-' requires int or flt, got {}", ty),
+                        );
                         None
                     }
-
                     _ => {
                         self.err(expr.span, format!("Unary '!' requires bool, got {}", ty));
                         None
@@ -1949,26 +2068,21 @@ impl Checker {
             }
 
             ExprKind::Binary(left, op, right) => {
-                let left_type = self.expr_type(left);
-                let right_type = self.expr_type(right);
-
-                let (a, b) = (left_type?, right_type?);
-
+                let a = self.expr_type(left)?;
+                let b = self.expr_type(right)?;
+                let numeric = |t: &str| t == "int" || t == "flt";
                 let result = match op.as_str() {
-                    "+" | "-" | "*" | "/" | "%" | "^" if a == "num" && b == "num" => "num",
-
-                    "<" | ">" if a == "num" && b == "num" => "bool",
-
+                    "+" | "-" | "*" | "%" | "^" if a == b && numeric(&a) => a.as_str(),
+                    "/" if a == b && numeric(&a) => "flt",
+                    "<" | ">" if a == b && numeric(&a) => "bool",
                     "&&" | "||" if a == "bool" && b == "bool" => "bool",
-
                     "==" | "!="
-                        if a == b && matches!(a.as_str(), "num" | "str" | "bool" | "type") =>
+                        if a == b
+                            && matches!(a.as_str(), "int" | "flt" | "str" | "bool" | "type") =>
                     {
                         "bool"
                     }
-
-                    "==" | "!=" if list_inner(&a).is_some() && list_inner(&b).is_some() => "bool",
-
+                    "==" | "!=" if list_inner(&a).is_some() && a == b => "bool",
                     _ => {
                         self.err(
                             expr.span,
@@ -1977,7 +2091,6 @@ impl Checker {
                         return None;
                     }
                 };
-
                 Some(result.into())
             }
 
@@ -1998,6 +2111,43 @@ impl Checker {
             }
 
             ExprKind::Call(name, args) => self.call_type(name, args, expr.span),
+
+            ExprKind::ModuleCall {
+                module,
+                function,
+                args,
+            } => {
+                let mut found_path = None;
+
+                for scope in self.scopes.iter_mut().rev() {
+                    if let Some(info) = scope.get_mut(&module.text) {
+                        info.used = true;
+
+                        if info.kind == "module" {
+                            found_path = info.ty.clone();
+                        } else {
+                            self.err(module.span, format!("'{}' is not a module", module.text));
+                            return None;
+                        }
+                        break;
+                    }
+                }
+
+                let path = match found_path {
+                    Some(p) => p,
+                    None => {
+                        self.err(module.span, format!("Undefined module '{}'", module.text));
+                        return None;
+                    }
+                };
+
+                match path.as_str() {
+                    "strings" => self.check_strings_module(module, function, args, expr.span),
+                    "math" => self.check_math_module(module, function, args, expr.span),
+                    "types" => self.check_types_module(module, function, args, expr.span),
+                    _ => None,
+                }
+            }
         }
     }
 
@@ -2023,33 +2173,422 @@ impl Checker {
         false
     }
 
+    fn expect_count_mod(
+        &mut self,
+        full_name: &str,
+        args: &[Expr],
+        count: usize,
+        span: Span,
+    ) -> bool {
+        if args.len() == count {
+            return true;
+        }
+
+        self.err(
+            span,
+            format!(
+                "{} expects {} argument(s), got {}",
+                full_name,
+                count,
+                args.len()
+            ),
+        );
+
+        for arg in args {
+            self.expr_type(arg);
+        }
+
+        false
+    }
+
+    fn check_strings_module(
+        &mut self,
+        module: &Name,
+        function: &Name,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<String> {
+        let full_name = format!(
+            "{}:{}() from module \"strings\"",
+            module.text, function.text
+        );
+
+        let check_str = |checker: &mut Self, arg: &Expr| {
+            if let Some(ty) = checker.expr_type(arg) {
+                if ty != "str" {
+                    checker.err(
+                        arg.span,
+                        format!("Argument to {} expects str, got {}", function.text, ty),
+                    );
+                }
+            }
+        };
+
+        let check_str_not_empty = |checker: &mut Self, arg: &Expr, msg: &str| {
+            if let Some(ty) = checker.expr_type(arg) {
+                if ty != "str" {
+                    checker.err(
+                        arg.span,
+                        format!("Argument to {} expects str, got {}", function.text, ty),
+                    );
+                } else if let ExprKind::Literal(Value::Str(text)) = &arg.kind {
+                    if text.is_empty() {
+                        checker.err(arg.span, msg);
+                    }
+                }
+            }
+        };
+
+        match function.text.as_str() {
+            "Trim" => {
+                if self.expect_count_mod(&full_name, args, 2, span) {
+                    check_str(self, &args[0]);
+                    check_str_not_empty(
+                        self,
+                        &args[1],
+                        "Trim() cannot use an empty string as a pattern",
+                    );
+                }
+                Some("str".into())
+            }
+
+            "Replace" => {
+                if self.expect_count_mod(&full_name, args, 3, span) {
+                    check_str(self, &args[0]);
+                    check_str_not_empty(
+                        self,
+                        &args[1],
+                        "Replace() cannot use an empty string as a pattern",
+                    );
+                    check_str(self, &args[2]);
+                }
+                Some("str".into())
+            }
+
+            "Split" => {
+                if self.expect_count_mod(&full_name, args, 2, span) {
+                    check_str(self, &args[0]);
+                    check_str_not_empty(
+                        self,
+                        &args[1],
+                        "Split() cannot use an empty string as a separator",
+                    );
+                }
+                Some("ls<str>".into())
+            }
+
+            "StartsWith" | "EndsWith" => {
+                if self.expect_count_mod(&full_name, args, 2, span) {
+                    check_str(self, &args[0]);
+                    check_str_not_empty(
+                        self,
+                        &args[1],
+                        &format!("{}() cannot search for an empty string", function.text),
+                    );
+                }
+                Some("bool".into())
+            }
+
+            "ToLowerCase" | "ToUpperCase" | "Capitalize" => {
+                if self.expect_count_mod(&full_name, args, 1, span) {
+                    check_str(self, &args[0]);
+                }
+                Some("str".into())
+            }
+
+            "Repeat" => {
+                if self.expect_count_mod(&full_name, args, 2, span) {
+                    check_str(self, &args[0]);
+
+                    if let Some(ty) = self.expr_type(&args[1]) {
+                        if ty != "int" {
+                            self.err(
+                                args[1].span,
+                                format!("Argument 2 of {} expects int, got {}", function.text, ty),
+                            );
+                        } else if let ExprKind::Literal(Value::Int(n)) = &args[1].kind {
+                            if *n < 0 {
+                                self.err(
+                                    args[1].span,
+                                    "Repeat() count must be a non-negative integer",
+                                );
+                            }
+                        } else if let ExprKind::Unary(op, inner) = &args[1].kind {
+                            if op == "-" && matches!(&inner.kind, ExprKind::Literal(Value::Int(_)))
+                            {
+                                self.err(
+                                    args[1].span,
+                                    "Repeat() count must be a non-negative integer",
+                                );
+                            }
+                        }
+                    }
+                }
+                Some("str".into())
+            }
+
+            _ => {
+                self.err(
+                    function.span,
+                    format!("Unknown function '{}' in module 'strings'", function.text),
+                );
+                None
+            }
+        }
+    }
+
+    fn check_math_module(
+        &mut self,
+        module: &Name,
+        function: &Name,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<String> {
+        let name = function.text.as_str();
+        let count = match name {
+            "AbsoluteValue" | "SquareRoot" | "Floor" | "Ceil" | "Round" | "Sum" | "Average" => 1,
+            "Minimum" | "Maximum" | "RandomInterval" => 2,
+            "Clamp" => 3,
+            _ => {
+                self.err(
+                    function.span,
+                    format!("Unknown function '{}' in module 'math'", name),
+                );
+                for arg in args {
+                    self.expr_type(arg);
+                }
+                return None;
+            }
+        };
+        let full_name = format!("{}:{}()", module.text, name);
+        if !self.expect_count_mod(&full_name, args, count, span) {
+            return None;
+        }
+        let types: Vec<Option<String>> = args.iter().map(|a| self.expr_type(a)).collect();
+        let first = types[0].as_deref();
+        let numeric = |t: &str| t == "int" || t == "flt";
+
+        match name {
+            "RandomInterval" => {
+                for (arg, ty) in args.iter().zip(&types) {
+                    if let Some(ty) = ty {
+                        if ty != "int" {
+                            self.err(
+                                arg.span,
+                                format!("RandomInterval() expects int, got {}", ty),
+                            );
+                        }
+                    }
+                }
+                if let (ExprKind::Literal(Value::Int(a)), ExprKind::Literal(Value::Int(b))) =
+                    (&args[0].kind, &args[1].kind)
+                {
+                    if a > b {
+                        self.err(span, "RandomInterval() minimum must not exceed maximum");
+                    }
+                }
+                Some("int".into())
+            }
+            "SquareRoot" | "Floor" | "Ceil" | "Round" => {
+                if let Some(ty) = first {
+                    if ty != "flt" {
+                        self.err(args[0].span, format!("{}() expects flt, got {}", name, ty));
+                    }
+                }
+                Some("flt".into())
+            }
+            "AbsoluteValue" | "Minimum" | "Maximum" | "Clamp" => {
+                if let Some(ty) = first {
+                    if !numeric(ty) {
+                        self.err(
+                            args[0].span,
+                            format!("{}() expects int or flt, got {}", name, ty),
+                        );
+                    }
+                }
+                for (arg, ty) in args.iter().zip(&types).skip(1) {
+                    if let Some(ty) = ty {
+                        if let Some(first) = first {
+                            if ty != first || !numeric(first) {
+                                self.err(
+                                    arg.span,
+                                    format!(
+                                        "{}() expects matching int or flt arguments, got {} and {}",
+                                        name, first, ty
+                                    ),
+                                );
+                            }
+                        } else if !numeric(ty) {
+                            self.err(
+                                arg.span,
+                                format!("{}() expects int or flt, got {}", name, ty),
+                            );
+                        }
+                    }
+                }
+                first.filter(|t| numeric(t)).map(str::to_string)
+            }
+            "Sum" | "Average" => {
+                if let Some(ty) = first {
+                    if ty != "ls<int>" && ty != "ls<flt>" {
+                        self.err(
+                            args[0].span,
+                            format!("{}() expects ls<int> or ls<flt>, got {}", name, ty),
+                        );
+                    }
+                }
+                if name == "Average" {
+                    Some("flt".into())
+                } else {
+                    first.and_then(|t| list_inner(t)).map(str::to_string)
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn check_types_module(
+        &mut self,
+        module: &Name,
+        function: &Name,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<String> {
+        let name = function.text.as_str();
+        if name != "Convert" && name != "IsConvertible" {
+            self.err(
+                function.span,
+                format!("Unknown function '{}' in module 'types'", name),
+            );
+            for arg in args {
+                self.expr_type(arg);
+            }
+            return None;
+        }
+        if !self.expect_count_mod(&format!("{}:{}()", module.text, name), args, 2, span) {
+            return None;
+        }
+        let source = self.expr_type(&args[0]);
+        self.expr_type(&args[1]);
+        let target = match &args[1].kind {
+            ExprKind::Literal(Value::Type(target)) if simple_convert_target(target) => target,
+            _ => {
+                self.err(
+                    args[1].span,
+                    "The conversion target must be a literal int, flt, str or bool",
+                );
+                return None;
+            }
+        };
+        if name == "Convert" {
+            if let Some(source) = source {
+                if !supported_conversion(&source, target) {
+                    self.err(
+                        args[0].span,
+                        format!("Convert() cannot convert {} to {}", source, target),
+                    );
+                }
+            }
+            Some(target.clone())
+        } else {
+            Some("bool".into())
+        }
+    }
+
     fn call_type(&mut self, name: &str, args: &[Expr], span: Span) -> Option<String> {
         match name {
-            "output" | "typeOf" => {
+            "Output" | "TypeOf" => {
                 if self.expect_count(name, args, 1, span) {
                     self.expr_type(&args[0]);
                 }
 
-                Some(if name == "output" { "none" } else { "type" }.into())
+                Some(if name == "Output" { "none" } else { "type" }.into())
             }
 
-            "length" => {
+            "Input" => {
                 if self.expect_count(name, args, 1, span) {
                     if let Some(ty) = self.expr_type(&args[0]) {
-                        if ty != "str" && list_inner(&ty).is_none() {
+                        if ty != "str" {
                             self.err(
                                 args[0].span,
-                                format!("length() requires a string or list, got {}", ty),
+                                format!("Input() requires a str prompt, got {}", ty),
                             );
                         }
                     }
                 }
 
-                Some("num".into())
+                Some("str".into())
             }
 
-            "insert" | "remove" => {
-                let count = if name == "insert" { 3 } else { 2 };
+            "Includes" => {
+                if self.expect_count(name, args, 2, span) {
+                    let haystack = self.expr_type(&args[0]);
+                    let needle = self.expr_type(&args[1]);
+
+                    if let (Some(haystack), Some(needle)) = (haystack, needle) {
+                        match list_inner(&haystack) {
+                            Some(inner) => {
+                                if needle != inner {
+                                    self.err(
+                                        args[1].span,
+                                        format!(
+                                            "Includes() cannot search for {} inside {}",
+                                            needle, haystack
+                                        ),
+                                    );
+                                }
+                            }
+
+                            None if haystack == "str" => {
+                                if needle != "str" {
+                                    self.err(
+                                        args[1].span,
+                                        format!(
+                                            "Includes() requires a str to search inside a str, got {}",
+                                            needle
+                                        ),
+                                    );
+                                } else if let ExprKind::Literal(Value::Str(pattern)) = &args[1].kind
+                                {
+                                    // Only substring search forbids the empty pattern.
+                                    // Membership in ls<str> must allow an empty string.
+                                    if pattern.is_empty() {
+                                        self.err(
+                                            args[1].span,
+                                            "Includes() cannot search for an empty string",
+                                        );
+                                    }
+                                }
+                            }
+
+                            None => self.err(
+                                args[0].span,
+                                format!("Includes() requires a string or list, got {}", haystack),
+                            ),
+                        }
+                    }
+                }
+
+                Some("bool".into())
+            }
+
+            "Length" => {
+                if self.expect_count(name, args, 1, span) {
+                    if let Some(ty) = self.expr_type(&args[0]) {
+                        if ty != "str" && list_inner(&ty).is_none() {
+                            self.err(
+                                args[0].span,
+                                format!("Length() requires a string or list, got {}", ty),
+                            );
+                        }
+                    }
+                }
+
+                Some("int".into())
+            }
+
+            "Insert" | "Remove" => {
+                let count = if name == "Insert" { 3 } else { 2 };
 
                 if !self.expect_count(name, args, count, span) {
                     return None;
@@ -2058,7 +2597,7 @@ impl Checker {
                 let list_type = self.expr_type(&args[0]);
                 self.check_index_expr(&args[1]);
 
-                let value_type = if name == "insert" {
+                let value_type = if name == "Insert" {
                     self.expr_type(&args[2])
                 } else {
                     None
@@ -2117,22 +2656,19 @@ impl Checker {
                     }
                 };
 
-                let required = params.iter().filter(|(_, default)| !*default).count();
-
-                if args.len() < required || args.len() > params.len() {
+                if args.len() != params.len() {
                     self.err(
                         span,
                         format!(
-                            "Function '{}' expects {} to {} argument(s), got {}",
+                            "Function '{}' expects {} argument(s), got {}",
                             name,
-                            required,
                             params.len(),
                             args.len()
                         ),
                     );
                 }
 
-                for (index, ((arg, ty), (expected, _))) in args
+                for (index, ((arg, ty), expected)) in args
                     .iter()
                     .zip(arg_types.iter())
                     .zip(params.iter())
@@ -2175,22 +2711,10 @@ struct Interpreter {
     return_types: Vec<String>,
 }
 
-fn resolve_index(n: f64, length: usize, is_insert: bool, span: Span) -> EResult<usize> {
-    if !n.is_finite() {
-        return Err(Diagnostic::new(span, "Index must be a finite number"));
-    }
-
-    if n.fract() != 0.0 {
-        return Err(Diagnostic::new(
-            span,
-            format!("Index must be an integer, got {}", n),
-        ));
-    }
-
-    if n <= 0.0 {
+fn resolve_index(n: i64, length: usize, is_insert: bool, span: Span) -> EResult<usize> {
+    if n <= 0 {
         return Err(Diagnostic::new(span, "Index must be positive and non-zero"));
     }
-
     let maximum = if is_insert {
         length
             .checked_add(1)
@@ -2198,25 +2722,142 @@ fn resolve_index(n: f64, length: usize, is_insert: bool, span: Span) -> EResult<
     } else {
         length
     };
-
-    if n > maximum as f64 {
+    let index = usize::try_from(n).map_err(|_| Diagnostic::new(span, "Index out of bounds"))?;
+    if index > maximum {
         return Err(Diagnostic::new(
             span,
-            format!(
-                "Index {} out of bounds (max {})",
-                Value::Num(n).display(),
-                maximum
-            ),
+            format!("Index {} out of bounds (max {})", n, maximum),
         ));
     }
-
-    let index = n as usize;
-
-    if index == 0 || index > maximum {
-        return Err(Diagnostic::new(span, "Index out of bounds"));
-    }
-
     Ok(index - 1)
+}
+
+// Only exact quotients representable by binary64 are permitted for int / int.
+// Cancelling common factors yields a dyadic rational when denominator is a power of 2.
+fn exact_integer_quotient(a: i64, b: i64) -> Option<f64> {
+    if b == 0 {
+        return None;
+    }
+    if a == 0 {
+        return Some(0.0);
+    }
+    let mut numerator = a.unsigned_abs();
+    let mut denominator = b.unsigned_abs();
+    let mut x = numerator;
+    let mut y = denominator;
+    while y != 0 {
+        let rem = x % y;
+        x = y;
+        y = rem;
+    }
+    numerator /= x;
+    denominator /= x;
+    if !denominator.is_power_of_two() {
+        return None;
+    }
+    let odd = numerator >> numerator.trailing_zeros();
+    if (u64::BITS - odd.leading_zeros()) > f64::MANTISSA_DIGITS {
+        return None;
+    }
+    // Use reduced operands: converting unreduced i64 values first can
+    // round them even when their quotient is exactly representable.
+    let magnitude = (numerator as f64) / (denominator as f64);
+    let result = if (a < 0) != (b < 0) {
+        -magnitude
+    } else {
+        magnitude
+    };
+    result.is_finite().then_some(result)
+}
+
+// Type conversion is explicit; conversion to/from lists and none is unsupported.
+fn simple_convert_target(target: &str) -> bool {
+    matches!(target, "int" | "flt" | "str" | "bool")
+}
+
+fn supported_conversion(source: &str, target: &str) -> bool {
+    if !simple_convert_target(target) {
+        return false;
+    }
+    match (source, target) {
+        ("int" | "flt" | "str" | "bool", t) if t == source => true,
+        ("int", "flt" | "str") => true,
+        ("flt", "int" | "str") => true,
+        ("str", "int" | "flt" | "bool") => true,
+        ("bool", "str") => true,
+        _ => false,
+    }
+}
+
+fn convert_value(value: &Value, target: &str) -> Option<Value> {
+    if !supported_conversion(&value.type_name(), target) {
+        return None;
+    }
+    if value.type_name() == target {
+        return Some(value.clone());
+    }
+    match (value, target) {
+        (Value::Int(n), "flt") => {
+            let float = *n as f64;
+            ((float as i128) == (*n as i128)).then_some(Value::Flt(float))
+        }
+        (Value::Int(n), "str") => Some(Value::Str(n.to_string())),
+        (Value::Flt(n), "int")
+            if n.is_finite()
+                && n.fract() == 0.0
+                && *n >= i64::MIN as f64
+                && *n < 9_223_372_036_854_775_808.0 =>
+        {
+            Some(Value::Int(*n as i64))
+        }
+        (Value::Flt(n), "str") => Some(Value::Str(n.to_string())),
+        (Value::Str(s), "int") => s.parse::<i64>().ok().map(Value::Int),
+        (Value::Str(s), "flt") => s
+            .parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite())
+            .map(Value::Flt),
+        (Value::Str(s), "bool") => match s.as_str() {
+            "true" => Some(Value::Bool(true)),
+            "false" => Some(Value::Bool(false)),
+            _ => None,
+        },
+        (Value::Bool(n), "str") => Some(Value::Str(n.to_string())),
+        _ => None,
+    }
+}
+
+// An integer average follows Stage 1 exact int/int division semantics.
+// The reduced fraction must be exactly representable in f64.
+fn exact_integer_average(sum: i128, count: usize) -> Option<f64> {
+    if count == 0 {
+        return None;
+    }
+    if sum == 0 {
+        return Some(0.0);
+    }
+    let mut numerator = sum.unsigned_abs();
+    let mut denominator = count as u128;
+    let (mut a, mut b) = (numerator, denominator);
+    while b != 0 {
+        let remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    numerator /= a;
+    denominator /= a;
+    if !denominator.is_power_of_two() {
+        return None;
+    }
+    let odd = numerator >> numerator.trailing_zeros();
+    if u128::BITS - odd.leading_zeros() > f64::MANTISSA_DIGITS {
+        return None;
+    }
+    let result = (numerator as f64) / (denominator as f64);
+    if !result.is_finite() {
+        return None;
+    }
+    Some(if sum < 0 { -result } else { result })
 }
 
 impl Interpreter {
@@ -2286,6 +2927,17 @@ impl Interpreter {
 
     fn execute_stmt(&mut self, stmt: &Stmt) -> EResult<Option<Value>> {
         match &stmt.kind {
+            Statement::Import { path, alias } => {
+                let scope = self.scopes.last_mut().unwrap();
+                scope.insert(
+                    alias.text.clone(),
+                    Variable {
+                        declared_type: "module".into(),
+                        value: Value::Type(path.clone()),
+                    },
+                );
+            }
+
             Statement::Function(definition) => {
                 if self.scopes.len() != 1 || !self.return_types.is_empty() {
                     return Err(Diagnostic::new(
@@ -2382,12 +3034,12 @@ impl Interpreter {
                         }
 
                         let n = match index_value {
-                            Value::Num(n) => n,
+                            Value::Int(n) => n,
 
                             other => {
                                 return Err(Diagnostic::new(
                                     index.span,
-                                    format!("Index must be num, got {}", other.type_name()),
+                                    format!("Index must be int, got {}", other.type_name()),
                                 ));
                             }
                         };
@@ -2477,7 +3129,7 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             condition.span,
-                            format!("cycle condition must be bool, got {}", other.type_name()),
+                            format!("loop condition must be bool, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -2502,7 +3154,7 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             list_expr.span,
-                            format!("cycle .. in .. requires a list, got {}", other.type_name()),
+                            format!("loop .. in .. requires a list, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -2574,12 +3226,19 @@ impl Interpreter {
                 Ok(Value::List(inner.clone(), values))
             }
 
-            ExprKind::Variable(name) => self
-                .lookup(name)
-                .map(|variable| variable.value.clone())
-                .ok_or_else(|| {
-                    Diagnostic::new(expr.span, format!("Undefined variable '{}'", name))
-                }),
+            ExprKind::Variable(name) => match self.lookup(name) {
+                Some(variable) if variable.declared_type == "module" => Err(Diagnostic::new(
+                    expr.span,
+                    format!("'{}' is a module, not a variable", name),
+                )),
+
+                Some(variable) => Ok(variable.value.clone()),
+
+                None => Err(Diagnostic::new(
+                    expr.span,
+                    format!("Undefined variable '{}'", name),
+                )),
+            },
 
             ExprKind::Index(array, index) => {
                 let array_value = self.evaluate(array)?;
@@ -2597,12 +3256,12 @@ impl Interpreter {
                 };
 
                 let n = match index_value {
-                    Value::Num(n) => n,
+                    Value::Int(n) => n,
 
                     other => {
                         return Err(Diagnostic::new(
                             index.span,
-                            format!("Index must be num, got {}", other.type_name()),
+                            format!("Index must be int, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -2616,23 +3275,15 @@ impl Interpreter {
                 let value = self.evaluate(operand)?;
 
                 match (op.as_str(), value) {
-                    ("-", Value::Num(n)) => {
-                        let result = -n;
-
-                        if !result.is_finite() {
-                            return Err(Diagnostic::new(expr.span, "Numeric result out of range"));
-                        }
-
-                        Ok(Value::Num(result))
-                    }
-
+                    ("-", Value::Int(n)) => n.checked_neg().map(Value::Int).ok_or_else(|| {
+                        Diagnostic::new(expr.span, "Integer overflow in unary minus")
+                    }),
+                    ("-", Value::Flt(n)) => Ok(Value::Flt(-n)),
                     ("!", Value::Bool(value)) => Ok(Value::Bool(!value)),
-
                     ("-", other) => Err(Diagnostic::new(
                         expr.span,
-                        format!("Unary '-' requires num, got {}", other.type_name()),
+                        format!("Unary '-' requires int or flt, got {}", other.type_name()),
                     )),
-
                     (_, other) => Err(Diagnostic::new(
                         expr.span,
                         format!("Unary '!' requires bool, got {}", other.type_name()),
@@ -2642,19 +3293,11 @@ impl Interpreter {
 
             ExprKind::Binary(left, op, right) => {
                 let a = self.evaluate(left)?;
-
                 if op == "&&" || op == "||" {
                     match &a {
-                        Value::Bool(false) if op == "&&" => {
-                            return Ok(Value::Bool(false));
-                        }
-
-                        Value::Bool(true) if op == "||" => {
-                            return Ok(Value::Bool(true));
-                        }
-
+                        Value::Bool(false) if op == "&&" => return Ok(Value::Bool(false)),
+                        Value::Bool(true) if op == "||" => return Ok(Value::Bool(true)),
                         Value::Bool(_) => {}
-
                         other => {
                             return Err(Diagnostic::new(
                                 expr.span,
@@ -2663,66 +3306,78 @@ impl Interpreter {
                                     op,
                                     other.type_name()
                                 ),
-                            ));
+                            ))
                         }
                     }
                 }
-
                 let b = self.evaluate(right)?;
-
                 let result = match (a, op.as_str(), b) {
-                    (Value::Num(a), "+", Value::Num(b)) => Value::Num(a + b),
-
-                    (Value::Num(a), "-", Value::Num(b)) => Value::Num(a - b),
-
-                    (Value::Num(a), "*", Value::Num(b)) => Value::Num(a * b),
-
-                    (Value::Num(_), "/", Value::Num(0.0)) => {
+                    (Value::Int(a), op @ ("+" | "-" | "*" | "%" | "^"), Value::Int(b)) => {
+                        let checked = match op {
+                            "+" => a.checked_add(b),
+                            "-" => a.checked_sub(b),
+                            "*" => a.checked_mul(b),
+                            "%" => a.checked_rem(b),
+                            "^" => {
+                                if b < 0 {
+                                    None
+                                } else {
+                                    u32::try_from(b)
+                                        .ok()
+                                        .and_then(|exponent| a.checked_pow(exponent))
+                                }
+                            }
+                            _ => unreachable!(),
+                        };
+                        Value::Int(checked.ok_or_else(|| Diagnostic::new(
+                            expr.span, "Integer arithmetic out of range (overflow, zero divisor or exponent)"
+                        ))?)
+                    }
+                    (Value::Int(a), "/", Value::Int(b)) => {
+                        if b == 0 {
+                            return Err(Diagnostic::new(expr.span, "Division by zero"));
+                        }
+                        Value::Flt(exact_integer_quotient(a, b).ok_or_else(|| {
+                            Diagnostic::new(
+                                expr.span,
+                                "Integer division would lose floating-point precision",
+                            )
+                        })?)
+                    }
+                    (Value::Flt(a), "+", Value::Flt(b)) => Value::Flt(a + b),
+                    (Value::Flt(a), "-", Value::Flt(b)) => Value::Flt(a - b),
+                    (Value::Flt(a), "*", Value::Flt(b)) => Value::Flt(a * b),
+                    (Value::Flt(_), "/", Value::Flt(0.0)) => {
                         return Err(Diagnostic::new(expr.span, "Division by zero"));
                     }
-
-                    (Value::Num(a), "/", Value::Num(b)) => Value::Num(a / b),
-
-                    (Value::Num(_), "%", Value::Num(0.0)) => {
+                    (Value::Flt(_), "%", Value::Flt(0.0)) => {
                         return Err(Diagnostic::new(expr.span, "Modulo by zero"));
                     }
-
-                    (Value::Num(a), "%", Value::Num(b)) => Value::Num(a % b),
-
-                    (Value::Num(a), "^", Value::Num(b)) => Value::Num(a.powf(b)),
-
-                    (Value::Num(a), "==", Value::Num(b)) => Value::Bool(a == b),
-
-                    (Value::Num(a), "!=", Value::Num(b)) => Value::Bool(a != b),
-
-                    (Value::Num(a), "<", Value::Num(b)) => Value::Bool(a < b),
-
-                    (Value::Num(a), ">", Value::Num(b)) => Value::Bool(a > b),
-
+                    (Value::Flt(a), "/", Value::Flt(b)) => Value::Flt(a / b),
+                    (Value::Flt(a), "%", Value::Flt(b)) => Value::Flt(a % b),
+                    (Value::Flt(a), "^", Value::Flt(b)) => Value::Flt(a.powf(b)),
+                    (Value::Int(a), "==", Value::Int(b)) => Value::Bool(a == b),
+                    (Value::Int(a), "!=", Value::Int(b)) => Value::Bool(a != b),
+                    (Value::Int(a), "<", Value::Int(b)) => Value::Bool(a < b),
+                    (Value::Int(a), ">", Value::Int(b)) => Value::Bool(a > b),
+                    (Value::Flt(a), "==", Value::Flt(b)) => Value::Bool(a == b),
+                    (Value::Flt(a), "!=", Value::Flt(b)) => Value::Bool(a != b),
+                    (Value::Flt(a), "<", Value::Flt(b)) => Value::Bool(a < b),
+                    (Value::Flt(a), ">", Value::Flt(b)) => Value::Bool(a > b),
                     (Value::Str(a), "==", Value::Str(b)) => Value::Bool(a == b),
-
                     (Value::Str(a), "!=", Value::Str(b)) => Value::Bool(a != b),
-
                     (Value::Bool(a), "==", Value::Bool(b)) => Value::Bool(a == b),
-
                     (Value::Bool(a), "!=", Value::Bool(b)) => Value::Bool(a != b),
-
                     (Value::Bool(a), "&&", Value::Bool(b)) => Value::Bool(a && b),
-
                     (Value::Bool(a), "||", Value::Bool(b)) => Value::Bool(a || b),
-
                     (Value::Type(a), "==", Value::Type(b)) => Value::Bool(a == b),
-
                     (Value::Type(a), "!=", Value::Type(b)) => Value::Bool(a != b),
-
-                    (Value::List(a_type, a), "==", Value::List(b_type, b)) => {
-                        Value::Bool(a_type == b_type && a == b)
+                    (Value::List(ta, a), "==", Value::List(tb, b)) => {
+                        Value::Bool(ta == tb && a == b)
                     }
-
-                    (Value::List(a_type, a), "!=", Value::List(b_type, b)) => {
-                        Value::Bool(a_type != b_type || a != b)
+                    (Value::List(ta, a), "!=", Value::List(tb, b)) => {
+                        Value::Bool(ta != tb || a != b)
                     }
-
                     (a, op, b) => {
                         return Err(Diagnostic::new(
                             expr.span,
@@ -2732,20 +3387,59 @@ impl Interpreter {
                                 a.type_name(),
                                 b.type_name()
                             ),
-                        ));
+                        ))
                     }
                 };
-
-                if let Value::Num(n) = &result {
+                if let Value::Flt(n) = &result {
                     if !n.is_finite() {
-                        return Err(Diagnostic::new(expr.span, "Numeric result out of range"));
+                        return Err(Diagnostic::new(
+                            expr.span,
+                            "Floating-point result out of range",
+                        ));
                     }
                 }
-
                 Ok(result)
             }
 
             ExprKind::Call(name, args) => self.call(name, args, expr.span),
+
+            ExprKind::ModuleCall {
+                module,
+                function,
+                args,
+            } => {
+                let path = match self.lookup(&module.text) {
+                    Some(var) if var.declared_type == "module" => {
+                        if let Value::Type(p) = &var.value {
+                            p.clone()
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                    Some(_) => {
+                        return Err(Diagnostic::new(
+                            module.span,
+                            format!("'{}' is not a module", module.text),
+                        ));
+                    }
+                    None => {
+                        return Err(Diagnostic::new(
+                            module.span,
+                            format!("Undefined module '{}'", module.text),
+                        ));
+                    }
+                };
+
+                match path.as_str() {
+                    "strings" => self.call_strings_module(module, function, args, expr.span),
+                    "math" => self.call_math_module(module, function, args, expr.span),
+                    "types" => self.call_types_module(module, function, args, expr.span),
+                    _ => Err(Diagnostic::new(
+                        expr.span,
+                        format!("Execution of module '{}' is not supported", path),
+                    )),
+                }
+            }
         }
     }
 
@@ -2763,9 +3457,419 @@ impl Interpreter {
         }
     }
 
+    fn call_strings_module(
+        &mut self,
+        module: &Name,
+        function: &Name,
+        args: &[Expr],
+        span: Span,
+    ) -> EResult<Value> {
+        let mut vals = Vec::new();
+
+        for arg in args {
+            vals.push((self.evaluate(arg)?, arg.span));
+        }
+
+        let expected = match function.text.as_str() {
+            "Trim" | "Split" | "StartsWith" | "EndsWith" | "Repeat" => 2,
+            "Replace" => 3,
+            "ToLowerCase" | "ToUpperCase" | "Capitalize" => 1,
+            _ => {
+                return Err(Diagnostic::new(
+                    function.span,
+                    format!("Unknown function '{}' in module 'strings'", function.text),
+                ));
+            }
+        };
+
+        if vals.len() != expected {
+            return Err(Diagnostic::new(
+                span,
+                format!(
+                    "{}:{}() from module \"strings\" expects {} argument(s), got {}",
+                    module.text,
+                    function.text,
+                    expected,
+                    vals.len()
+                ),
+            ));
+        }
+
+        let as_str = |val: &Value, span: Span| -> EResult<String> {
+            if let Value::Str(s) = val {
+                Ok(s.clone())
+            } else {
+                Err(Diagnostic::new(
+                    span,
+                    format!("Expected str, got {}", val.type_name()),
+                ))
+            }
+        };
+
+        let as_int = |val: &Value, span: Span| -> EResult<i64> {
+            if let Value::Int(n) = val {
+                Ok(*n)
+            } else {
+                Err(Diagnostic::new(
+                    span,
+                    format!("Expected int, got {}", val.type_name()),
+                ))
+            }
+        };
+
+        match function.text.as_str() {
+            "Trim" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                let old = as_str(&vals[1].0, vals[1].1)?;
+
+                if old.is_empty() {
+                    return Err(Diagnostic::new(
+                        vals[1].1,
+                        "Trim() cannot use an empty string as a pattern",
+                    ));
+                }
+
+                let mut res = text.as_str();
+
+                loop {
+                    let mut changed = false;
+
+                    if let Some(stripped) = res.strip_prefix(old.as_str()) {
+                        res = stripped;
+                        changed = true;
+                    }
+
+                    if let Some(stripped) = res.strip_suffix(old.as_str()) {
+                        res = stripped;
+                        changed = true;
+                    }
+
+                    if !changed {
+                        break;
+                    }
+                }
+
+                Ok(Value::Str(res.to_string()))
+            }
+
+            "Replace" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                let old = as_str(&vals[1].0, vals[1].1)?;
+                let new_val = as_str(&vals[2].0, vals[2].1)?;
+
+                if old.is_empty() {
+                    return Err(Diagnostic::new(
+                        vals[1].1,
+                        "Replace() cannot use an empty string as a pattern",
+                    ));
+                }
+
+                Ok(Value::Str(text.replace(old.as_str(), &new_val)))
+            }
+
+            "Split" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                let sep = as_str(&vals[1].0, vals[1].1)?;
+
+                if sep.is_empty() {
+                    return Err(Diagnostic::new(
+                        vals[1].1,
+                        "Split() cannot use an empty string as a separator",
+                    ));
+                }
+
+                let parts = text
+                    .split(sep.as_str())
+                    .map(|s| Value::Str(s.to_string()))
+                    .collect();
+
+                Ok(Value::List("str".to_string(), parts))
+            }
+
+            "StartsWith" | "EndsWith" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                let part = as_str(&vals[1].0, vals[1].1)?;
+
+                if part.is_empty() {
+                    return Err(Diagnostic::new(
+                        vals[1].1,
+                        format!("{}() cannot search for an empty string", function.text),
+                    ));
+                }
+
+                if function.text == "StartsWith" {
+                    Ok(Value::Bool(text.starts_with(part.as_str())))
+                } else {
+                    Ok(Value::Bool(text.ends_with(part.as_str())))
+                }
+            }
+
+            "ToLowerCase" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                Ok(Value::Str(text.to_lowercase()))
+            }
+
+            "ToUpperCase" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                Ok(Value::Str(text.to_uppercase()))
+            }
+
+            "Capitalize" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                let mut result = String::new();
+                let mut done = false;
+
+                for ch in text.chars() {
+                    if !done && ch.is_alphabetic() {
+                        result.extend(ch.to_uppercase());
+                        done = true;
+                    } else {
+                        result.push(ch);
+                    }
+                }
+
+                Ok(Value::Str(result))
+            }
+
+            "Repeat" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                let count = as_int(&vals[1].0, vals[1].1)?;
+
+                if count < 0 {
+                    return Err(Diagnostic::new(
+                        vals[1].1,
+                        "Repeat() count must be a non-negative integer",
+                    ));
+                }
+
+                let max_len: usize = 64 * 1024 * 1024;
+
+                if count > max_len as i64 {
+                    return Err(Diagnostic::new(
+                        span,
+                        "Resulting string is too large (exceeds 64 MiB limit)",
+                    ));
+                }
+
+                let n = count as usize;
+
+                match text.len().checked_mul(n) {
+                    Some(total) if total <= max_len => Ok(Value::Str(text.repeat(n))),
+
+                    _ => Err(Diagnostic::new(
+                        span,
+                        "Resulting string is too large (exceeds 64 MiB limit)",
+                    )),
+                }
+            }
+
+            _ => Err(Diagnostic::new(
+                function.span,
+                format!("Unknown function '{}' in module 'strings'", function.text),
+            )),
+        }
+    }
+
+    fn call_math_module(
+        &mut self,
+        module: &Name,
+        function: &Name,
+        args: &[Expr],
+        span: Span,
+    ) -> EResult<Value> {
+        let name = function.text.as_str();
+        let count = match name {
+            "AbsoluteValue" | "SquareRoot" | "Floor" | "Ceil" | "Round" | "Sum" | "Average" => 1,
+            "Minimum" | "Maximum" | "RandomInterval" => 2,
+            "Clamp" => 3,
+            _ => {
+                return Err(Diagnostic::new(
+                    function.span,
+                    format!("Unknown function '{}' in module 'math'", name),
+                ))
+            }
+        };
+        Self::check_count(
+            &format!("{}:{}", module.text, name),
+            args.len(),
+            count,
+            span,
+        )?;
+        let mut values = Vec::with_capacity(args.len());
+        for arg in args {
+            values.push(self.evaluate(arg)?);
+        }
+        let mismatch = || {
+            Diagnostic::new(
+                span,
+                format!("{}() arguments have invalid or incompatible types", name),
+            )
+        };
+        let out_of_range =
+            || Diagnostic::new(span, format!("{}() result out of range or invalid", name));
+
+        match (name, values.as_slice()) {
+            ("RandomInterval", [Value::Int(a), Value::Int(b)]) => {
+                if a > b {
+                    return Err(Diagnostic::new(
+                        span,
+                        "RandomInterval() minimum must not exceed maximum",
+                    ));
+                }
+                use rand::Rng;
+                Ok(Value::Int(rand::rng().random_range(*a..=*b)))
+            }
+            ("AbsoluteValue", [Value::Int(n)]) => {
+                Ok(Value::Int(n.checked_abs().ok_or_else(out_of_range)?))
+            }
+            ("AbsoluteValue", [Value::Flt(n)]) => Ok(Value::Flt(n.abs())),
+            ("SquareRoot", [Value::Flt(n)]) => {
+                if *n < 0.0 {
+                    return Err(Diagnostic::new(
+                        span,
+                        "SquareRoot() requires a non-negative value",
+                    ));
+                }
+                Ok(Value::Flt(n.sqrt()))
+            }
+            ("Floor", [Value::Flt(n)]) => Ok(Value::Flt(n.floor())),
+            ("Ceil", [Value::Flt(n)]) => Ok(Value::Flt(n.ceil())),
+            ("Round", [Value::Flt(n)]) => Ok(Value::Flt(n.round())),
+            ("Minimum", [Value::Int(a), Value::Int(b)]) => Ok(Value::Int((*a).min(*b))),
+            ("Maximum", [Value::Int(a), Value::Int(b)]) => Ok(Value::Int((*a).max(*b))),
+            ("Minimum", [Value::Flt(a), Value::Flt(b)]) => Ok(Value::Flt(a.min(*b))),
+            ("Maximum", [Value::Flt(a), Value::Flt(b)]) => Ok(Value::Flt(a.max(*b))),
+            ("Clamp", [Value::Int(n), Value::Int(lo), Value::Int(hi)]) => {
+                if lo > hi {
+                    return Err(Diagnostic::new(
+                        span,
+                        "Clamp() minimum must not exceed maximum",
+                    ));
+                }
+                Ok(Value::Int((*n).clamp(*lo, *hi)))
+            }
+            ("Clamp", [Value::Flt(n), Value::Flt(lo), Value::Flt(hi)]) => {
+                if lo > hi {
+                    return Err(Diagnostic::new(
+                        span,
+                        "Clamp() minimum must not exceed maximum",
+                    ));
+                }
+                Ok(Value::Flt((*n).max(*lo).min(*hi)))
+            }
+            ("Sum", [Value::List(inner, items)]) if inner == "int" => {
+                let mut sum = 0_i64;
+                for value in items {
+                    if let Value::Int(n) = value {
+                        sum = sum.checked_add(*n).ok_or_else(out_of_range)?;
+                    } else {
+                        return Err(mismatch());
+                    }
+                }
+                Ok(Value::Int(sum))
+            }
+            ("Sum", [Value::List(inner, items)]) if inner == "flt" => {
+                let mut sum = 0.0_f64;
+                for value in items {
+                    if let Value::Flt(n) = value {
+                        sum += *n;
+                        if !sum.is_finite() {
+                            return Err(out_of_range());
+                        }
+                    } else {
+                        return Err(mismatch());
+                    }
+                }
+                Ok(Value::Flt(sum))
+            }
+            ("Average", [Value::List(inner, items)]) if inner == "int" => {
+                let mut sum = 0_i128;
+                for value in items {
+                    if let Value::Int(n) = value {
+                        sum = sum.checked_add(*n as i128).ok_or_else(out_of_range)?;
+                    } else {
+                        return Err(mismatch());
+                    }
+                }
+                if items.is_empty() {
+                    return Err(Diagnostic::new(span, "Average() requires a non-empty list"));
+                }
+                let result = exact_integer_average(sum, items.len()).ok_or_else(|| {
+                    Diagnostic::new(
+                        span,
+                        "Average() of integers would lose floating-point precision",
+                    )
+                })?;
+                Ok(Value::Flt(result))
+            }
+            ("Average", [Value::List(inner, items)]) if inner == "flt" => {
+                if items.is_empty() {
+                    return Err(Diagnostic::new(span, "Average() requires a non-empty list"));
+                }
+                // Scale each term before adding to avoid intermediate sum overflow.
+                let divisor = items.len() as f64;
+                let mut average = 0.0_f64;
+                for value in items {
+                    if let Value::Flt(n) = value {
+                        average += *n / divisor;
+                        if !average.is_finite() {
+                            return Err(out_of_range());
+                        }
+                    } else {
+                        return Err(mismatch());
+                    }
+                }
+                Ok(Value::Flt(average))
+            }
+            _ => Err(mismatch()),
+        }
+    }
+
+    fn call_types_module(
+        &mut self,
+        module: &Name,
+        function: &Name,
+        args: &[Expr],
+        span: Span,
+    ) -> EResult<Value> {
+        let name = function.text.as_str();
+        if name != "Convert" && name != "IsConvertible" {
+            return Err(Diagnostic::new(
+                function.span,
+                format!("Unknown function '{}' in module 'types'", name),
+            ));
+        }
+        Self::check_count(&format!("{}:{}", module.text, name), args.len(), 2, span)?;
+        let source = self.evaluate(&args[0])?;
+        let target = match &args[1].kind {
+            ExprKind::Literal(Value::Type(target)) if simple_convert_target(target) => target,
+            _ => {
+                return Err(Diagnostic::new(
+                    args[1].span,
+                    "The conversion target must be a literal int, flt, str or bool",
+                ))
+            }
+        };
+        let converted = convert_value(&source, target);
+        if name == "IsConvertible" {
+            Ok(Value::Bool(converted.is_some()))
+        } else {
+            converted.ok_or_else(|| {
+                Diagnostic::new(
+                    span,
+                    format!(
+                        "Convert() cannot convert {} value to {}",
+                        source.type_name(),
+                        target
+                    ),
+                )
+            })
+        }
+    }
+
     fn call(&mut self, name: &str, args: &[Expr], span: Span) -> EResult<Value> {
         match name {
-            "output" => {
+            "Output" => {
                 Self::check_count(name, args.len(), 1, span)?;
 
                 let value = self.evaluate(&args[0])?;
@@ -2787,32 +3891,160 @@ impl Interpreter {
                 return Ok(Value::Null);
             }
 
-            "typeOf" => {
+            "Input" => {
+                Self::check_count(name, args.len(), 1, span)?;
+
+                let prompt = match self.evaluate(&args[0])? {
+                    Value::Str(text) => text,
+
+                    other => {
+                        return Err(Diagnostic::new(
+                            args[0].span,
+                            format!("Input() requires a str prompt, got {}", other.type_name()),
+                        ));
+                    }
+                };
+
+                // Print the prompt exactly like Output() does,
+                // so it is visible before the program starts waiting.
+                {
+                    let mut stdout = io::stdout().lock();
+
+                    write!(stdout, "{}", prompt).map_err(|e| {
+                        Diagnostic::new(span, format!("Failed to write output: {}", e))
+                    })?;
+
+                    stdout.flush().map_err(|e| {
+                        Diagnostic::new(span, format!("Failed to flush output: {}", e))
+                    })?;
+                }
+
+                if !prompt.is_empty() {
+                    OUTPUT_LINE_OPEN.store(!prompt.ends_with('\n'), Ordering::Relaxed);
+                }
+
+                let mut line = String::new();
+
+                let bytes_read = io::stdin()
+                    .lock()
+                    .read_line(&mut line)
+                    .map_err(|e| Diagnostic::new(span, format!("Failed to read input: {}", e)))?;
+
+                if bytes_read == 0 {
+                    return Err(Diagnostic::new(
+                        span,
+                        "Input() reached the end of input: nothing left to read",
+                    ));
+                }
+
+                // Remove only the Enter itself (\n or \r\n).
+                // Everything the user typed stays untouched.
+                if line.ends_with('\n') {
+                    line.pop();
+
+                    if line.ends_with('\r') {
+                        line.pop();
+                    }
+                }
+
+                // In a terminal the user's Enter already moved
+                // the cursor to a new line. With piped input it did not.
+                if io::stdin().is_terminal() {
+                    OUTPUT_LINE_OPEN.store(false, Ordering::Relaxed);
+                }
+
+                return Ok(Value::Str(line));
+            }
+
+            "TypeOf" => {
                 Self::check_count(name, args.len(), 1, span)?;
 
                 let value = self.evaluate(&args[0])?;
                 return Ok(Value::Type(value.type_name()));
             }
 
-            "length" => {
-                Self::check_count(name, args.len(), 1, span)?;
+            "Includes" => {
+                Self::check_count(name, args.len(), 2, span)?;
 
-                return match self.evaluate(&args[0])? {
-                    Value::Str(text) => Ok(Value::Num(text.chars().count() as f64)),
+                let haystack = self.evaluate(&args[0])?;
+                let needle = self.evaluate(&args[1])?;
 
-                    Value::List(_, elements) => Ok(Value::Num(elements.len() as f64)),
+                return match haystack {
+                    Value::Str(text) => {
+                        let pattern = match needle {
+                            Value::Str(pattern) => pattern,
+
+                            other => {
+                                return Err(Diagnostic::new(
+                                    args[1].span,
+                                    format!(
+                                        "Includes() requires a str to search inside a str, got {}",
+                                        other.type_name()
+                                    ),
+                                ));
+                            }
+                        };
+
+                        if pattern.is_empty() {
+                            return Err(Diagnostic::new(
+                                args[1].span,
+                                "Includes() cannot search for an empty string",
+                            ));
+                        }
+
+                        Ok(Value::Bool(text.contains(&pattern)))
+                    }
+
+                    Value::List(inner, elements) => {
+                        if needle.type_name() != inner {
+                            return Err(Diagnostic::new(
+                                args[1].span,
+                                format!(
+                                    "Includes() cannot search for {} inside ls<{}>",
+                                    needle.type_name(),
+                                    inner
+                                ),
+                            ));
+                        }
+
+                        Ok(Value::Bool(elements.contains(&needle)))
+                    }
 
                     other => Err(Diagnostic::new(
                         args[0].span,
                         format!(
-                            "length() requires a string or list, got {}",
+                            "Includes() requires a string or list, got {}",
                             other.type_name()
                         ),
                     )),
                 };
             }
 
-            "insert" => {
+            "Length" => {
+                Self::check_count(name, args.len(), 1, span)?;
+
+                return match self.evaluate(&args[0])? {
+                    Value::Str(text) => Ok(Value::Int(
+                        i64::try_from(text.chars().count())
+                            .map_err(|_| Diagnostic::new(span, "String too long"))?,
+                    )),
+
+                    Value::List(_, elements) => Ok(Value::Int(
+                        i64::try_from(elements.len())
+                            .map_err(|_| Diagnostic::new(span, "List too long"))?,
+                    )),
+
+                    other => Err(Diagnostic::new(
+                        args[0].span,
+                        format!(
+                            "Length() requires a string or list, got {}",
+                            other.type_name()
+                        ),
+                    )),
+                };
+            }
+
+            "Insert" => {
                 Self::check_count(name, args.len(), 3, span)?;
 
                 let list = self.evaluate(&args[0])?;
@@ -2825,18 +4057,18 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             args[0].span,
-                            format!("insert() expects a list, got {}", other.type_name()),
+                            format!("Insert() expects a list, got {}", other.type_name()),
                         ));
                     }
                 };
 
                 let n = match index {
-                    Value::Num(n) => n,
+                    Value::Int(n) => n,
 
                     other => {
                         return Err(Diagnostic::new(
                             args[1].span,
-                            format!("Index must be num, got {}", other.type_name()),
+                            format!("Index must be int, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -2855,7 +4087,7 @@ impl Interpreter {
                 return Ok(Value::List(inner, elements));
             }
 
-            "remove" => {
+            "Remove" => {
                 Self::check_count(name, args.len(), 2, span)?;
 
                 let list = self.evaluate(&args[0])?;
@@ -2867,18 +4099,18 @@ impl Interpreter {
                     other => {
                         return Err(Diagnostic::new(
                             args[0].span,
-                            format!("remove() expects a list, got {}", other.type_name()),
+                            format!("Remove() expects a list, got {}", other.type_name()),
                         ));
                     }
                 };
 
                 let n = match index {
-                    Value::Num(n) => n,
+                    Value::Int(n) => n,
 
                     other => {
                         return Err(Diagnostic::new(
                             args[1].span,
-                            format!("Index must be num, got {}", other.type_name()),
+                            format!("Index must be int, got {}", other.type_name()),
                         ));
                     }
                 };
@@ -2899,19 +4131,12 @@ impl Interpreter {
             .cloned()
             .ok_or_else(|| Diagnostic::new(span, format!("Unknown function '{}'", name)))?;
 
-        let required = definition
-            .parameters
-            .iter()
-            .filter(|p| p.default.is_none())
-            .count();
-
-        if args.len() < required || args.len() > definition.parameters.len() {
+        if args.len() != definition.parameters.len() {
             return Err(Diagnostic::new(
                 span,
                 format!(
-                    "Function '{}' expects {} to {} argument(s), got {}",
+                    "Function '{}' expects {} argument(s), got {}",
                     name,
-                    required,
                     definition.parameters.len(),
                     args.len()
                 ),
@@ -2948,23 +4173,15 @@ impl Interpreter {
         let mut values = values.into_iter();
 
         for parameter in &definition.parameters {
-            let (value, value_span) = match values.next() {
-                Some(value) => value,
-
-                None => match &parameter.default {
-                    Some(default) => (self.evaluate(default)?, default.span),
-
-                    None => {
-                        return Err(Diagnostic::new(
-                            parameter.name.span,
-                            format!(
-                                "Missing argument '{}' for '{}'",
-                                parameter.name.text, definition.name.text
-                            ),
-                        ));
-                    }
-                },
-            };
+            let (value, value_span) = values.next().ok_or_else(|| {
+                Diagnostic::new(
+                    parameter.name.span,
+                    format!(
+                        "Missing argument '{}' for '{}'",
+                        parameter.name.text, definition.name.text
+                    ),
+                )
+            })?;
 
             if value.type_name() != parameter.declared_type.name {
                 return Err(Diagnostic::new(
@@ -3122,5 +4339,333 @@ fn main() {
         }
 
         std::process::exit(1);
+    }
+}
+#[cfg(test)]
+mod stage1_tests {
+    use super::*;
+
+    #[test]
+    fn numeric_literals_have_distinct_types() {
+        let tokens = lex("5 5.0").unwrap();
+        assert!(matches!(tokens[0].kind, TokenKind::Integer(5)));
+        assert!(matches!(tokens[1].kind, TokenKind::Float(v) if v == 5.0));
+    }
+
+    #[test]
+    fn function_syntax_parses_and_checks() {
+        let program = "function Square(x int) int { return int x * x }\nOutput(Square(5))";
+        assert!(check_source(program).is_ok());
+    }
+
+    #[test]
+    fn default_parameters_are_rejected() {
+        let source = "function Bad(x int = 1) int { return int x }";
+        assert!(parse_source(source).is_err());
+    }
+
+    #[test]
+    fn mixed_arithmetic_is_rejected() {
+        assert!(check_source("Output(1 + 2.0)").is_err());
+    }
+
+    #[test]
+    fn integer_quotient_exactness() {
+        assert_eq!(exact_integer_quotient(5, 2), Some(2.5));
+        assert_eq!(exact_integer_quotient(1, 4), Some(0.25));
+        assert_eq!(exact_integer_quotient(1, 3), None);
+        assert_eq!(exact_integer_quotient(1, 10), None);
+        assert_eq!(exact_integer_quotient(0, 5), Some(0.0));
+        assert_eq!(exact_integer_quotient(5, 0), None);
+        assert_eq!(
+            exact_integer_quotient(9_007_199_254_740_993, 3),
+            Some(3_002_399_751_580_331.0)
+        );
+    }
+
+    #[test]
+    fn random_interval_inclusive_equal_bounds() {
+        let source =
+            "import \"math\" as math\nvalue int := math:RandomInterval(7, 7)\nOutput(value)";
+        assert!(check_source(source).is_ok());
+        assert!(execute(source).is_ok());
+    }
+
+    #[test]
+    fn random_interval_rejects_inverted_bounds() {
+        let source = "import \"math\" as math\nOutput(math:RandomInterval(8, 4))";
+        assert!(check_source(source).is_err());
+    }
+
+    #[test]
+    fn integer_index_and_length() {
+        let source =
+            "values ls<int> := list<int>{1, 2, 3}\nOutput(values[1])\nOutput(Length(values))";
+        assert!(check_source(source).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod stage2_tests {
+    use super::*;
+
+    fn evaluate_checked(source: &str) -> EResult<Value> {
+        let program = match check_source(source) {
+            Ok(program) => program,
+            Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
+            Err(Failure::Syntax(err)) => panic!("Syntax error: {:?}", err),
+            Err(Failure::Runtime(_)) => unreachable!(),
+        };
+        let mut vm = Interpreter::new();
+        let (last, previous) = program.split_last().expect("Non-empty program");
+        vm.execute_block(previous)?;
+        if let Statement::Expression(expr) = &last.kind {
+            vm.evaluate(expr)
+        } else {
+            panic!("Last statement must be an expression");
+        }
+    }
+
+    fn math(expr: &str) -> EResult<Value> {
+        evaluate_checked(&format!("import \"math\" as math\n{}", expr))
+    }
+
+    fn types(expr: &str) -> EResult<Value> {
+        evaluate_checked(&format!("import \"types\" as types\n{}", expr))
+    }
+
+    #[test]
+    fn absolute_value_and_square_root() {
+        assert_eq!(math("math:AbsoluteValue((-17))").unwrap(), Value::Int(17));
+        assert_eq!(math("math:AbsoluteValue((-2.5))").unwrap(), Value::Flt(2.5));
+        assert_eq!(math("math:SquareRoot(81.0)").unwrap(), Value::Flt(9.0));
+        assert!(math("math:SquareRoot((-1.0))").is_err());
+        assert!(check_source("import \"math\" as math\nmath:SquareRoot(9)").is_err());
+    }
+
+    #[test]
+    fn absolute_value_integer_minimum_rejected() {
+        let source = "import \"math\" as math\nimport \"types\" as types\nmath:AbsoluteValue(types:Convert(\"-9223372036854775808\", int))";
+        assert!(evaluate_checked(source).is_err());
+    }
+
+    #[test]
+    fn rounding_away_from_zero() {
+        assert_eq!(math("math:Round(2.5)").unwrap(), Value::Flt(3.0));
+        assert_eq!(math("math:Round((-2.5))").unwrap(), Value::Flt(-3.0));
+        assert_eq!(math("math:Floor((-2.1))").unwrap(), Value::Flt(-3.0));
+        assert_eq!(math("math:Ceil((-2.1))").unwrap(), Value::Flt(-2.0));
+    }
+
+    #[test]
+    fn min_max_clamp_typed_and_bounds_checked() {
+        assert_eq!(math("math:Minimum(3, 8)").unwrap(), Value::Int(3));
+        assert_eq!(math("math:Maximum(3.0, 8.0)").unwrap(), Value::Flt(8.0));
+        assert_eq!(math("math:Clamp(15, 0, 10)").unwrap(), Value::Int(10));
+        assert_eq!(
+            math("math:Clamp((-2.0), 0.0, 10.0)").unwrap(),
+            Value::Flt(0.0)
+        );
+        assert!(math("math:Clamp(1, 3, 2)").is_err());
+        assert!(check_source("import \"math\" as math\nmath:Minimum(2, 3.0)").is_err());
+    }
+
+    #[test]
+    fn sum_empty_and_overflow() {
+        assert_eq!(math("math:Sum(list<int>{})").unwrap(), Value::Int(0));
+        assert_eq!(math("math:Sum(list<int>{1, 2, 3})").unwrap(), Value::Int(6));
+        assert_eq!(
+            math("math:Sum(list<flt>{1.5, 2.5})").unwrap(),
+            Value::Flt(4.0)
+        );
+        assert!(math("math:Sum(list<int>{9223372036854775807, 1})").is_err());
+        assert!(check_source("import \"math\" as math\nmath:Sum(list<str>{\"x\"})").is_err());
+    }
+
+    #[test]
+    fn average_exactness_int_and_floats() {
+        assert_eq!(
+            math("math:Average(list<int>{10, 20, 30})").unwrap(),
+            Value::Flt(20.0)
+        );
+        assert_eq!(
+            math("math:Average(list<int>{1, 2})").unwrap(),
+            Value::Flt(1.5)
+        );
+        assert_eq!(
+            math("math:Average(list<flt>{2.0, 4.0})").unwrap(),
+            Value::Flt(3.0)
+        );
+        assert!(math("math:Average(list<int>{1, 2, 2})").is_err());
+        assert!(math("math:Average(list<int>{})").is_err());
+        assert!(math("math:Average(list<flt>{})").is_err());
+    }
+
+    #[test]
+    fn random_interval_keeps_inclusive_endpoints() {
+        // Equal bounds prove that both ends of an inclusive range are accepted.
+        assert_eq!(math("math:RandomInterval(5, 5)").unwrap(), Value::Int(5));
+
+        // Invalid literal bounds are rejected during static checking, not at runtime.
+        let literal_bounds = "import \"math\" as math\nmath:RandomInterval(10, 1)";
+        assert!(matches!(
+            check_source(literal_bounds),
+            Err(Failure::Static(_))
+        ));
+
+        // Non-literal bounds pass static checking but fail at runtime when inverted.
+        let dynamic_bounds = "import \"math\" as math\nminimum int := 10\nmaximum int := 1\nmath:RandomInterval(minimum, maximum)";
+        assert!(check_source(dynamic_bounds).is_ok());
+        assert!(evaluate_checked(dynamic_bounds).is_err());
+
+        // The numeric types of both boundaries are checked statically.
+        assert!(check_source("import \"math\" as math\nmath:RandomInterval(1, 2.0)").is_err());
+    }
+
+    #[test]
+    fn conversions_validate_values() {
+        assert_eq!(
+            types("types:Convert(\"123\", int)").unwrap(),
+            Value::Int(123)
+        );
+        assert_eq!(
+            types("types:Convert(\"3.25\", flt)").unwrap(),
+            Value::Flt(3.25)
+        );
+        assert_eq!(types("types:Convert(3.0, int)").unwrap(), Value::Int(3));
+        assert_eq!(
+            types("types:Convert(42, str)").unwrap(),
+            Value::Str("42".into())
+        );
+        assert_eq!(
+            types("types:Convert(\"true\", bool)").unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            types("types:Convert(false, str)").unwrap(),
+            Value::Str("false".into())
+        );
+        assert!(types("types:Convert(3.9, int)").is_err());
+        assert!(types("types:Convert(9223372036854775807, flt)").is_err());
+        assert!(types("types:Convert(9223372036854775808.0, int)").is_err());
+        assert!(types("types:Convert(\"bad\", int)").is_err());
+    }
+
+    #[test]
+    fn is_convertible_returns_false_without_error() {
+        assert_eq!(
+            types("types:IsConvertible(\"123\", int)").unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            types("types:IsConvertible(\"bad\", int)").unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            types("types:IsConvertible(3.9, int)").unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            types("types:IsConvertible(true, int)").unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            types("types:IsConvertible(list<int>{1}, str)").unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn convert_rejects_unsupported_pair_statically() {
+        assert!(check_source("import \"types\" as types\ntypes:Convert(true, int)").is_err());
+        assert!(
+            check_source("import \"types\" as types\ntypes:Convert(list<int>{1}, str)").is_err()
+        );
+    }
+
+    #[test]
+    fn type_target_must_be_literal() {
+        assert!(check_source("import \"types\" as types\ntypes:Convert(1, TypeOf(1))").is_err());
+        assert!(
+            check_source("import \"types\" as types\ntypes:IsConvertible(1, ls<int>)").is_err()
+        );
+    }
+
+    #[test]
+    fn module_imports_and_invalid_arity() {
+        assert!(check_source("import \"math\" as math\nimport \"types\" as types\nOutput(math:AbsoluteValue(types:Convert(\"-4\", int)))").is_ok());
+        assert!(check_source("import \"math\" as math\nmath:AbsoluteValue(1, 2)").is_err());
+        assert!(check_source("import \"types\" as types\ntypes:Convert(1)").is_err());
+        assert!(check_source("import \"types\" as types\ntypes:Unknown(1)").is_err());
+    }
+}
+
+#[cfg(test)]
+mod stage3_tests {
+    use super::*;
+
+    #[test]
+    fn includes_allows_empty_string_as_list_element() {
+        let source = r#"items ls<str> := list<str>{"", "value"}
+Output(Includes(items, ""))"#;
+        assert!(
+            check_source(source).is_ok(),
+            "Empty strings are valid list elements"
+        );
+        let program = check_source(source).ok().unwrap();
+        // The list membership operation itself must evaluate to true.
+        let mut interpreter = Interpreter::new();
+        let (last, preceding) = program.split_last().unwrap();
+        interpreter.execute_block(preceding).unwrap();
+        let Statement::Expression(Expr {
+            kind: ExprKind::Call(_, args),
+            ..
+        }) = &last.kind
+        else {
+            panic!("Expected Output(...) expression");
+        };
+        assert_eq!(interpreter.evaluate(&args[0]).unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn includes_rejects_empty_substring_statically() {
+        assert!(matches!(
+            check_source("Output(Includes(\"abc\", \"\"))"),
+            Err(Failure::Static(_))
+        ));
+    }
+
+    #[test]
+    fn fractional_output_preserves_tiny_nonzero_values() {
+        assert_eq!(
+            Value::Flt(0.00000000000000001).display(),
+            "0.00000000000000001"
+        );
+        assert_eq!(
+            Value::Flt(1.2345678901234567).display(),
+            "1.2345678901234567"
+        );
+    }
+
+    #[test]
+    fn integer_conversion_boundaries_are_checked() {
+        assert_eq!(
+            convert_value(&Value::Str("-9223372036854775808".into()), "int"),
+            Some(Value::Int(i64::MIN))
+        );
+        assert_eq!(
+            convert_value(&Value::Str("9223372036854775807".into()), "int"),
+            Some(Value::Int(i64::MAX))
+        );
+        assert!(convert_value(&Value::Flt(9_223_372_036_854_775_808.0), "int").is_none());
+        assert!(convert_value(&Value::Int(i64::MAX), "flt").is_none());
+    }
+
+    #[test]
+    fn exact_division_rejects_non_dyadic_quotients() {
+        assert_eq!(exact_integer_quotient(5, 2), Some(2.5));
+        assert_eq!(exact_integer_quotient(1, 3), None);
+        assert_eq!(exact_integer_quotient(0, 3), Some(0.0));
+        assert_eq!(exact_integer_quotient(1, 0), None);
     }
 }

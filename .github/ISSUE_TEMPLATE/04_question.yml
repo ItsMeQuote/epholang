@@ -1,4 +1,3 @@
-
 name: "❓ Question"
 description: Ask a question about Epholang
 title: "[QUESTION] "
@@ -10,10 +9,11 @@ body:
         Thank you for your interest in Epholang!
 
         Before asking, please check the documentation:
-        https://github.com/ItsMeQuote/epholang
+        - https://github.com/ItsMeQuote/epholang
+        - https://github.com/ItsMeQuote/epholang/wiki
 
         For general discussions, you can also visit our Telegram community (Russian):
-        https://t.me/epholang
+        - https://t.me/epholang
 
   - type: dropdown
     id: category
@@ -53,6 +53,6 @@ body:
     attributes:
       label: Epholang version
       description: Provide the exact version if your question concerns specific behaviour.
-      placeholder: "0.1.0"
+      placeholder: "0.2.0"
     validations:
       required: false

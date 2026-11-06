@@ -1,0 +1,6 @@
+import "math" as math
+
+numbers ls<int> := list<int>{10, 20, 30}
+Output("Sum: #{math:Sum(numbers)}\n")
+Output("Average: #{math:Average(numbers)}\n")
+Output("Random 1 to 6: #{math:RandomInterval(1, 6)}\n")

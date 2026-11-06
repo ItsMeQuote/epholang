@@ -1,4 +1,3 @@
-
 # Epholang Roadmap
 
 [ [**English**](ROADMAP.md) | [Russian](ROADMAP.ru.md) ]
@@ -12,31 +11,37 @@ updated, postponed or removed as development progresses.
 
 The first public release of Epholang.
 
-## Version 0.2.0 — Planned
+## Version 0.2.x — Planned
 
 ### Language changes
-- [ ] Remove default parameter values.
-- [ ] Introduce the new function declaration syntax.
+
+- [x] Remove default parameter values.
+- [x] Introduce the new function declaration syntax.
 
 ### Standard library
-- [ ] Introduce the `strings` module.
-- [ ] Add the `input()` function.
+
+- [x] Introduce the `strings` module.
+- [x] Add the `input()` function.
 
 ### Improvements
-- [ ] Fix known parser and interpreter issues.
-- [ ] Improve error messages.
+
+- [x] Fix known parser and interpreter issues.
+- [x] Improve error messages.
 
 ## Future development
 
 ### Type system
+
 - [ ] Union types.
 - [ ] Nested lists.
 
 ### Language features
+
 - [ ] Error handling as values.
-- [ ] `datatable`.
+- [ ] Custom types.
 
 ### Compiler
+
 - [ ] Develop a native compiler.
 
 ## Notes

@@ -2,20 +2,23 @@
   "name": "epholang-language",
   "displayName": "Epholang",
   "icon": "icon.png",
-  "description": "Syntax highlighting and basic editing support for Epholang.",
-  "version": "0.1.0",
+  "description": "Syntax highlighting, snippets, and basic editing support for Epholang 0.2.0.",
+  "version": "0.2.0",
   "publisher": "itsmequote",
   "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Snippets"
   ],
   "keywords": [
     "epholang",
     "epho",
-    "syntax highlighting"
+    "syntax highlighting",
+    "snippets",
+    "programming language"
   ],
   "contributes": {
     "languages": [
@@ -37,10 +40,19 @@
         "scopeName": "source.epholang",
         "path": "./syntaxes/epholang.tmLanguage.json"
       }
+    ],
+    "snippets": [
+      {
+        "language": "epholang",
+        "path": "./snippets/epholang.json"
+      }
     ]
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/ItsMeQuote/epholang"
+  },
+  "scripts": {
+    "test": "node tests/validate-extension.mjs"
   }
 }

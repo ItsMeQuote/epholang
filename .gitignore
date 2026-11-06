@@ -9,5 +9,9 @@
 *.tmp
 *.bak
 
-
+# VS Code extensions, should be located on the releases page
 *.vsix
+
+# Other
+**/*.rs.bk
+.DS_Store

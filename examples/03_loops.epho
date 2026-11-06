@@ -1,0 +1,10 @@
+counter int := 1
+loop counter < 4 {
+    Output("#{counter}\n")
+    counter = counter + 1
+}
+
+items ls<str> := list<str>{"first", "second"}
+loop item in items {
+    Output("#{item}\n")
+}

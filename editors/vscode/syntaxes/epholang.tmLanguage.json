@@ -114,36 +114,75 @@
           "match": "<=|>="
         },
         {
-          "name": "entity.name.function.epholang",
-          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s+func\\b)"
+          "name": "meta.function.declaration.epholang",
+          "match": "\\b(function)(\\s+)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.epholang"
+            },
+            "3": {
+              "name": "entity.name.function.definition.epholang"
+            }
+          }
+        },
+        {
+          "name": "meta.import.alias.epholang",
+          "match": "\\b(as)(\\s+)([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.epholang"
+            },
+            "3": {
+              "name": "entity.name.namespace.epholang"
+            }
+          }
+        },
+        {
+          "name": "meta.function-call.module.epholang",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(:)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "variable.other.module.epholang"
+            },
+            "2": {
+              "name": "punctuation.accessor.epholang"
+            },
+            "3": {
+              "name": "entity.name.function.epholang"
+            }
+          }
         },
         {
           "name": "keyword.control.epholang",
-          "match": "\\b(?:if|otherwise|cycle|in|return)\\b"
+          "match": "\\b(?:if|otherwise|loop|in|return|import)\\b"
         },
         {
           "name": "storage.type.function.epholang",
-          "match": "\\b(?:function)\\b"
+          "match": "\\bfunction\\b"
         },
         {
           "name": "storage.type.epholang",
-          "match": "\\b(?:num|str|bool|none|type|ls|list|func)\\b"
+          "match": "\\b(?:int|flt|str|bool|none|type|ls|list)\\b"
         },
         {
           "name": "constant.language.epholang",
           "match": "\\b(?:true|false|null)\\b"
         },
         {
-          "name": "support.function.epholang",
-          "match": "\\b(?:output|length|insert|remove|typeOf)(?=\\s*\\()"
+          "name": "support.function.builtin.epholang",
+          "match": "\\b(?:Output|Input|Includes|Length|Insert|Remove|TypeOf)(?=\\s*\\()"
         },
         {
-          "name": "entity.name.function.epholang",
+          "name": "entity.name.function.call.epholang",
           "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
         },
         {
-          "name": "constant.numeric.epholang",
-          "match": "(?<![A-Za-z0-9_.])(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)(?![A-Za-z0-9_.])"
+          "name": "constant.numeric.float.epholang",
+          "match": "(?<![A-Za-z0-9_.])(?:\\d+\\.\\d+|\\.\\d+)(?![A-Za-z0-9_.])"
+        },
+        {
+          "name": "constant.numeric.integer.epholang",
+          "match": "(?<![A-Za-z0-9_.])\\d+(?![A-Za-z0-9_.])"
         },
         {
           "name": "keyword.operator.epholang",

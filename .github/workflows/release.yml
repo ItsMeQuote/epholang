@@ -1,84 +1,98 @@
-
-name: Release
+name: Release candidate
 
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "0.2.0-alpha.*"
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Release binary (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: epholang-linux-x64
+            filename: epholang-linux-x64
           - os: windows-latest
-            artifact: epholang-windows-x64.exe
+            filename: epholang-windows-x64.exe
           - os: macos-latest
-            artifact: epholang-macos-arm64
+            filename: epholang-macos-arm64
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Setup Rust
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Run tests
+        run: cargo test --all-targets --release --locked
 
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Prepare binary (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           mkdir -p dist
-          cp target/release/epholang dist/${{ matrix.artifact }}
+          cp target/release/epholang "dist/${{ matrix.filename }}"
 
       - name: Prepare binary (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist
-          Copy-Item target/release/epholang.exe dist/${{ matrix.artifact }}
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/epholang.exe "dist/${{ matrix.filename }}"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}
+          name: ${{ matrix.filename }}
+          path: dist/${{ matrix.filename }}
+          if-no-files-found: error
 
   vscode:
     name: Package VS Code extension
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
 
-      - name: Install dependencies
-        working-directory: editors/vscode
+      - name: Install locked dependencies
         run: npm ci
 
-      - name: Package extension
-        working-directory: editors/vscode
+      - name: Test extension
+        run: npm test
+
+      - name: Package VSIX
         run: npx --yes @vscode/vsce package
 
       - name: Upload VSIX
@@ -86,14 +100,17 @@ jobs:
         with:
           name: epholang-vscode-extension
           path: editors/vscode/*.vsix
+          if-no-files-found: error
 
-  publish:
-    name: Publish GitHub Release
+  draft_release:
+    name: Create draft GitHub Release
     needs: [build, vscode]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - name: Download artifacts
+      - name: Download verified artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
@@ -101,11 +118,15 @@ jobs:
 
       - name: Generate SHA-256 checksums
         working-directory: dist
-        run: sha256sum * > SHA256SUMS.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum epholang-* > SHA256SUMS.txt
 
-      - name: Publish release
+      - name: Create draft prerelease
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
           prerelease: true
+          draft: true

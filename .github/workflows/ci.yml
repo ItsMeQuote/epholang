@@ -1,9 +1,11 @@
-
 name: CI
 
 on:
   push:
+    branches:
+      - "**"
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,23 +14,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build and test (${{ matrix.os }})
+  rust:
+    name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Setup Rust
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -37,10 +35,34 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Check compilation
-        run: cargo check --all-targets
+        run: cargo check --all-targets --locked
 
       - name: Run tests
-        run: cargo test --all-targets
+        run: cargo test --all-targets --locked
+
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate VS Code extension
+        run: npm test

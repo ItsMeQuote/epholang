@@ -1,4 +1,3 @@
-
 name: "🐞 Bug report"
 description: Report a bug in Epholang
 title: "[BUG] "
@@ -24,7 +23,7 @@ body:
     attributes:
       label: Epholang version
       description: "Provide the exact version. Do not write 'latest'. Issues without an exact version may be closed."
-      placeholder: "0.1.0"
+      placeholder: "0.2.0"
     validations:
       required: true
 

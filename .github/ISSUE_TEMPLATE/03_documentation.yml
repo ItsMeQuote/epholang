@@ -1,4 +1,3 @@
-
 name: "📖 Documentation"
 description: Report documentation errors or suggest improvements
 title: "[DOCS] "
@@ -49,7 +48,7 @@ body:
     attributes:
       label: Documentation location
       description: Provide a link or specify the file and section.
-      placeholder: "README.md, Types section"
+      placeholder: "README.md, 'Why Epholang' section"
     validations:
       required: true
 

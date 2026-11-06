@@ -1,0 +1,7 @@
+import "types" as types
+
+text str := "42"
+if types:IsConvertible(text, int) {
+    number int := types:Convert(text, int)
+    Output("Converted: #{number}\n")
+}
