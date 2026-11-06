@@ -18,7 +18,7 @@
 
 ---
 
-[**English**](README.md) | [Русский](README.ru.md)
+[ [**English**](README.md) | [Русский](README.ru.md) ]
 
 > **Status:** Epholang **0.2.0 is under development**. This README documents the tested 0.2.0 Stage 3 implementation, **not a published 0.2.0 release**. The [Releases page](https://github.com/ItsMeQuote/epholang/releases) is the source of truth for downloadable versions. The language is experimental; breaking changes are expected.
 >
