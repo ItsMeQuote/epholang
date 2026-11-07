@@ -1082,7 +1082,7 @@ impl Parser {
                     return Err(Diagnostic::new(
                         path_token.span,
                         "Expected a string literal for module path",
-                    ))
+                    ));
                 }
             };
 
@@ -3306,7 +3306,7 @@ impl Interpreter {
                                     op,
                                     other.type_name()
                                 ),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -3387,7 +3387,7 @@ impl Interpreter {
                                 a.type_name(),
                                 b.type_name()
                             ),
-                        ))
+                        ));
                     }
                 };
                 if let Value::Flt(n) = &result {
@@ -3686,7 +3686,7 @@ impl Interpreter {
                 return Err(Diagnostic::new(
                     function.span,
                     format!("Unknown function '{}' in module 'math'", name),
-                ))
+                ));
             }
         };
         Self::check_count(
@@ -3847,7 +3847,7 @@ impl Interpreter {
                 return Err(Diagnostic::new(
                     args[1].span,
                     "The conversion target must be a literal int, flt, str or bool",
-                ))
+                ));
             }
         };
         let converted = convert_value(&source, target);
