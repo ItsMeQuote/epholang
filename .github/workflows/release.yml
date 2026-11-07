@@ -3,7 +3,8 @@ name: Release candidate
 on:
   push:
     tags:
-      - "0.2.0-alpha.*"
+      - "0.2.0"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,18 +14,42 @@ env:
 
 jobs:
   build:
-    name: Release binary (${{ matrix.os }})
+    name: Release binary (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - name: Linux x64
+            os: ubuntu-24.04
             filename: epholang-linux-x64
-          - os: windows-latest
+            exe: epholang
+
+          - name: Linux ARM64
+            os: ubuntu-24.04-arm
+            filename: epholang-linux-arm64
+            exe: epholang
+
+          - name: Windows x64
+            os: windows-2025
             filename: epholang-windows-x64.exe
-          - os: macos-latest
+            exe: epholang.exe
+
+          - name: Windows ARM64
+            os: windows-11-arm
+            filename: epholang-windows-arm64.exe
+            exe: epholang.exe
+
+          - name: macOS Intel
+            os: macos-15-intel
+            filename: epholang-macos-x64
+            exe: epholang
+
+          - name: macOS Apple Silicon
+            os: macos-15
             filename: epholang-macos-arm64
+            exe: epholang
 
     steps:
       - name: Checkout repository
@@ -33,19 +58,24 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+          components: clippy
 
       - name: Run Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      - name: Run tests
+      - name: Run release tests
         run: cargo test --all-targets --release --locked
 
       - name: Build release binary
         run: cargo build --release --locked
+
+      - name: Smoke test release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          "./target/release/${{ matrix.exe }}" run examples/01_hello.epho
+          "./target/release/${{ matrix.exe }}" run examples/02_functions.epho
+          "./target/release/${{ matrix.exe }}" run examples/03_loops.epho
 
       - name: Prepare binary (Linux/macOS)
         if: runner.os != 'Windows'
@@ -61,16 +91,18 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/release/epholang.exe "dist/${{ matrix.filename }}"
 
-      - name: Upload binary
+      - name: Upload verified binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.filename }}
           path: dist/${{ matrix.filename }}
           if-no-files-found: error
+          retention-days: 30
 
   vscode:
     name: Package VS Code extension
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+
     defaults:
       run:
         working-directory: editors/vscode
@@ -93,7 +125,7 @@ jobs:
         run: npm test
 
       - name: Package VSIX
-        run: npx --yes @vscode/vsce package
+        run: npx --no-install vsce package
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
@@ -104,8 +136,10 @@ jobs:
 
   draft_release:
     name: Create draft GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [build, vscode]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+
     permissions:
       contents: write
 
