@@ -2139,12 +2139,16 @@ impl Checker {
 
                 let array_type = array_type?;
 
-                match list_inner(&array_type) {
-                    Some(inner) => Some(inner.to_string()),
+                if array_type == "str" {
+                    Some("str".into())
+                } else {
+                    match list_inner(&array_type) {
+                        Some(inner) => Some(inner.to_string()),
 
-                    None => {
-                        self.err(array.span, format!("Cannot index into {}", array_type));
-                        None
+                        None => {
+                            self.err(array.span, format!("Cannot index into {}", array_type));
+                            None
+                        }
                     }
                 }
             }
@@ -3297,17 +3301,6 @@ impl Interpreter {
                 let array_value = self.evaluate(array)?;
                 let index_value = self.evaluate(index)?;
 
-                let elements = match array_value {
-                    Value::List(_, elements) => elements,
-
-                    other => {
-                        return Err(Diagnostic::new(
-                            array.span,
-                            format!("Cannot index into {}", other.type_name()),
-                        ));
-                    }
-                };
-
                 let n = match index_value {
                     Value::Int(n) => n,
 
@@ -3319,9 +3312,27 @@ impl Interpreter {
                     }
                 };
 
-                let index = resolve_index(n, elements.len(), false, index.span)?;
+                match array_value {
+                    Value::List(_, elements) => {
+                        let index = resolve_index(n, elements.len(), false, index.span)?;
+                        Ok(elements[index].clone())
+                    }
 
-                Ok(elements[index].clone())
+                    Value::Str(text) => {
+                        let length = text.chars().count();
+                        let index = resolve_index(n, length, false, index.span)?;
+                        let character = text
+                            .chars()
+                            .nth(index)
+                            .expect("Resolved string index must be in bounds");
+                        Ok(Value::Str(character.to_string()))
+                    }
+
+                    other => Err(Diagnostic::new(
+                        array.span,
+                        format!("Cannot index into {}", other.type_name()),
+                    )),
+                }
             }
 
             ExprKind::Unary(op, operand) => {
@@ -4755,6 +4766,71 @@ mod stage2_tests {
         assert!(check_source("import \"types\" as types\ntypes:Convert(1, TypeOf(1))").is_err());
         assert!(
             check_source("import \"types\" as types\ntypes:IsConvertible(1, ls<int>)").is_err()
+        );
+    }
+
+
+    #[test]
+    fn string_indexing_is_one_based_and_returns_str() {
+        assert_eq!(evaluate_checked(r#""hello"[1]"#).unwrap(), Value::Str("h".into()));
+        assert_eq!(evaluate_checked(r#""hello"[5]"#).unwrap(), Value::Str("o".into()));
+        assert_eq!(
+            evaluate_checked(r#"text str := "hello"
+text[2]"#).unwrap(),
+            Value::Str("e".into())
+        );
+    }
+
+    #[test]
+    fn string_indexing_uses_unicode_scalar_values() {
+        assert_eq!(
+            evaluate_checked(r#""Привет"[1]"#).unwrap(),
+            Value::Str("П".into())
+        );
+        assert_eq!(
+            evaluate_checked(r#""A🙂Б"[2]"#).unwrap(),
+            Value::Str("🙂".into())
+        );
+        assert_eq!(
+            evaluate_checked(r#""A🙂Б"[3]"#).unwrap(),
+            Value::Str("Б".into())
+        );
+    }
+
+    #[test]
+    fn string_indexing_rejects_zero_and_out_of_bounds() {
+        assert!(matches!(
+            check_source(r#""hello"[0]"#),
+            Err(Failure::Static(_))
+        ));
+        assert!(matches!(
+            evaluate_checked(r#""hello"[6]"#),
+            Err(_)
+        ));
+    }
+
+    #[test]
+    fn string_indexing_requires_an_integer_index() {
+        assert!(matches!(
+            check_source(r#""hello"["1"]"#),
+            Err(Failure::Static(_))
+        ));
+    }
+
+    #[test]
+    fn strings_are_not_mutable_through_index_assignment() {
+        assert!(matches!(
+            check_source(r#"text str := "hello"
+text[1] = "H""#),
+            Err(Failure::Static(_))
+        ));
+    }
+
+    #[test]
+    fn list_indexing_still_works_after_string_indexing() {
+        assert_eq!(
+            evaluate_checked("values ls<int> := list<int>{10, 20, 30}\nvalues[2]").unwrap(),
+            Value::Int(20)
         );
     }
 
