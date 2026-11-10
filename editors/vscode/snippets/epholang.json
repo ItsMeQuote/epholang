@@ -1,10 +1,10 @@
 {
   "Function": {
     "prefix": "function",
-    "description": "Declare a typed Epholang function (0.2.0)",
+    "description": "Declare a typed Epholang function",
     "body": [
       "function ${1:FunctionName}(${2:value} ${3:int}) ${4:int} {",
-      "    return ${4} ${5:value}",
+      "    return ${4} ${2}",
       "$0}"
     ]
   },
@@ -36,16 +36,23 @@
   },
   "Input": {
     "prefix": "Input",
-    "description": "Read a line of text",
+    "description": "Display a prompt and read a line of text",
     "body": [
       "Input(${1:\"Prompt: \"})$0"
     ]
   },
   "List of integers": {
-    "prefix": "listint",
+    "prefix": "list<int>",
     "description": "Typed integer list",
     "body": [
-      "${1:items} ls<int> := list<int>{${2:1, 2, 3}}$0"
+      "list<int>{${1:1, 2, 3}}$0"
+    ]
+  },
+  "List of strings": {
+    "prefix": "list<str>",
+    "description": "Typed string list",
+    "body": [
+      "list<str>{${1:\"x\", \"y\", \"z\"}}$0"
     ]
   },
   "Loop with condition": {
@@ -58,7 +65,7 @@
     ]
   },
   "Loop over list": {
-    "prefix": "loopin",
+    "prefix": "loop in",
     "description": "Iterate over a list",
     "body": [
       "loop ${1:item} in ${2:items} {",
