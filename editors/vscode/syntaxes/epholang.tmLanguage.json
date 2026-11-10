@@ -154,7 +154,7 @@
         },
         {
           "name": "keyword.control.epholang",
-          "match": "\\b(?:if|otherwise|loop|in|return|import)\\b"
+          "match": "\\b(?:if|otherwise|loop|in|return|import|break|skip)\\b"
         },
         {
           "name": "storage.type.function.epholang",
