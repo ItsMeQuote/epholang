@@ -2922,20 +2922,16 @@ impl Checker {
 
                 let list_type = list_type?;
 
-                let inner = match list_element_type(&list_type) {
-                    Some(inner) => inner,
-
-                    None => {
-                        self.err(
-                            args[0].span,
-                            format!(
-                                "{}() expects a list as first argument, got {}",
-                                name, list_type
-                            ),
-                        );
-                        return None;
-                    }
-                };
+                if list_element_type(&list_type).is_none() {
+                    self.err(
+                        args[0].span,
+                        format!(
+                            "{}() expects a list as first argument, got {}",
+                            name, list_type
+                        ),
+                    );
+                    return None;
+                }
 
                 if let Some(ty) = value_type {
                     if !list_accepts_element(&list_type, &ty) {
@@ -5444,7 +5440,6 @@ Output(Includes(items, ""))"#;
         assert_eq!(exact_integer_quotient(1, 0), None);
     }
 }
-
 
 #[cfg(test)]
 mod union_type_tests {
