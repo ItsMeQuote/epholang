@@ -2948,11 +2948,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn run_scoped(
-        &mut self,
-        body: &[Stmt],
-        scope: HashMap<String, Variable>,
-    ) -> EResult<ExecFlow> {
+    fn run_scoped(&mut self, body: &[Stmt], scope: HashMap<String, Variable>) -> EResult<ExecFlow> {
         self.scopes.push(scope);
 
         let result = self.execute_block(body);
@@ -4474,6 +4470,36 @@ mod stage1_tests {
         assert!(check_source(source).is_ok());
     }
 
+
+#[cfg(test)]
+mod stage2_tests {
+    use super::*;
+
+    fn evaluate_checked(source: &str) -> EResult<Value> {
+        let program = match check_source(source) {
+            Ok(program) => program,
+            Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
+            Err(Failure::Syntax(err)) => panic!("Syntax error: {:?}", err),
+            Err(Failure::Runtime(_)) => unreachable!(),
+        };
+        let mut vm = Interpreter::new();
+        let (last, previous) = program.split_last().expect("Non-empty program");
+        vm.execute_block(previous)?;
+        if let Statement::Expression(expr) = &last.kind {
+            vm.evaluate(expr)
+        } else {
+            panic!("Last statement must be an expression");
+        }
+    }
+
+    fn math(expr: &str) -> EResult<Value> {
+        evaluate_checked(&format!("import \"math\" as math\n{}", expr))
+    }
+
+    fn types(expr: &str) -> EResult<Value> {
+        evaluate_checked(&format!("import \"types\" as types\n{}", expr))
+    }
+
     #[test]
     fn break_and_skip_control_while_loops() {
         let source = r#"
@@ -4573,36 +4599,6 @@ mod stage1_tests {
 
         assert!(check_source(source).is_ok());
         assert!(execute(source).is_ok());
-    }
-}
-
-#[cfg(test)]
-mod stage2_tests {
-    use super::*;
-
-    fn evaluate_checked(source: &str) -> EResult<Value> {
-        let program = match check_source(source) {
-            Ok(program) => program,
-            Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
-            Err(Failure::Syntax(err)) => panic!("Syntax error: {:?}", err),
-            Err(Failure::Runtime(_)) => unreachable!(),
-        };
-        let mut vm = Interpreter::new();
-        let (last, previous) = program.split_last().expect("Non-empty program");
-        vm.execute_block(previous)?;
-        if let Statement::Expression(expr) = &last.kind {
-            vm.evaluate(expr)
-        } else {
-            panic!("Last statement must be an expression");
-        }
-    }
-
-    fn math(expr: &str) -> EResult<Value> {
-        evaluate_checked(&format!("import \"math\" as math\n{}", expr))
-    }
-
-    fn types(expr: &str) -> EResult<Value> {
-        evaluate_checked(&format!("import \"types\" as types\n{}", expr))
     }
 
     #[test]
