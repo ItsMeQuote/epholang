@@ -491,7 +491,7 @@ fn lex_chars(chars: &[SourceChar], eof_span: Span) -> EResult<Vec<Token>> {
             continue;
         }
 
-        if "+-*/%^(){}[],;=<>!:".contains(c) {
+        if "+-*/%^(){}[],;=<>!:|".contains(c) {
             tokens.push(Token {
                 kind: TokenKind::Symbol(c.to_string()),
                 span: chars[i].span,
