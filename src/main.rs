@@ -1491,6 +1491,23 @@ impl Parser {
         let mut left = self.parse_prefix()?;
 
         loop {
+            if matches!(&self.current().kind, TokenKind::Newline) {
+                let mut next = self.pos;
+
+                while matches!(&self.tokens[next].kind, TokenKind::Newline) {
+                    next += 1;
+                }
+
+                let continues_logical_expression = matches!(
+                    &self.tokens[next].kind,
+                    TokenKind::Symbol(op) if op == "&&" || op == "||"
+                );
+
+                if continues_logical_expression {
+                    self.pos = next;
+                }
+            }
+
             let op = match &self.current().kind {
                 TokenKind::Symbol(s)
                     if Self::precedence(s) >= min_prec && Self::precedence(s) > 0 =>
@@ -5541,6 +5558,76 @@ mod union_type_tests {
         assert_eq!(ty.name(), "int | str");
         assert!(type_accepts("int | str", "int"));
         assert!(!type_accepts("int", "int | str"));
+    }
+
+    #[test]
+    fn if_condition_supports_logical_or_at_line_start() {
+        let source = r#"
+            function Check() bool {
+                if false
+                    || false
+                    || true {
+                    return bool true
+                }
+                otherwise {
+                    return bool false
+                }
+            }
+            Check()
+        "#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_union_source(source), Value::Bool(true));
+    }
+
+    #[test]
+    fn if_condition_supports_logical_and_at_line_start() {
+        let source = r#"
+            function Check() bool {
+                if true
+                    && true
+                    && false {
+                    return bool true
+                }
+                otherwise {
+                    return bool false
+                }
+            }
+            Check()
+        "#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_union_source(source), Value::Bool(false));
+    }
+
+    #[test]
+    fn multiline_logical_operators_preserve_precedence() {
+        let source = r#"
+            function Check() bool {
+                if false
+                    || true
+                    && false {
+                    return bool true
+                }
+                otherwise {
+                    return bool false
+                }
+            }
+            Check()
+        "#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_union_source(source), Value::Bool(false));
+    }
+
+    #[test]
+    fn ordinary_newline_still_ends_expression() {
+        let source = r#"
+            value bool := true
+            false
+        "#;
+
+        assert!(check_source(source).is_err());
     }
 
     fn evaluate_union_source(source: &str) -> Value {
