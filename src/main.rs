@@ -2374,43 +2374,36 @@ impl Checker {
                     check_str(self, &args[1]);
 
                     let start = match &args[0].kind {
-                        ExprKind::Literal(Value::Str(text)) => {
-                            match ascii_letter_byte(text) {
-                                Some(value) => Some(value),
-                                None => {
-                                    self.err(
-                                        args[0].span,
-                                        "AlphabetRange() start must be exactly one ASCII letter (A-Z or a-z)",
-                                    );
-                                    None
-                                }
+                        ExprKind::Literal(Value::Str(text)) => match ascii_letter_byte(text) {
+                            Some(value) => Some(value),
+                            None => {
+                                self.err(
+                                    args[0].span,
+                                    "AlphabetRange() start must be exactly one ASCII letter (A-Z or a-z)",
+                                );
+                                None
                             }
-                        }
+                        },
                         _ => None,
                     };
 
                     let end = match &args[1].kind {
-                        ExprKind::Literal(Value::Str(text)) => {
-                            match ascii_letter_byte(text) {
-                                Some(value) => Some(value),
-                                None => {
-                                    self.err(
-                                        args[1].span,
-                                        "AlphabetRange() end must be exactly one ASCII letter (A-Z or a-z)",
-                                    );
-                                    None
-                                }
+                        ExprKind::Literal(Value::Str(text)) => match ascii_letter_byte(text) {
+                            Some(value) => Some(value),
+                            None => {
+                                self.err(
+                                    args[1].span,
+                                    "AlphabetRange() end must be exactly one ASCII letter (A-Z or a-z)",
+                                );
+                                None
                             }
-                        }
+                        },
                         _ => None,
                     };
 
                     if let (Some(start), Some(end)) = (start, end) {
                         if start.is_ascii_uppercase() != end.is_ascii_uppercase() {
-                            self.err(
-                                span,
-                                "AlphabetRange() endpoints must use the same case",
-                            );
+                            self.err(span, "AlphabetRange() endpoints must use the same case");
                         }
                     }
                 }
@@ -4879,9 +4872,8 @@ mod stage2_tests {
         );
     }
 
-
     fn strings(expr: &str) -> EResult<Value> {
-        evaluate_checked(&format!("import \"strings\" as strings\\n{}", expr))
+        evaluate_checked(&format!("import \"strings\" as strings\n{}", expr))
     }
 
     #[test]
@@ -4914,22 +4906,34 @@ mod stage2_tests {
 
     #[test]
     fn alphabet_range_rejects_invalid_literal_endpoints_statically() {
-        assert!(check_source(
-            r#"import "strings" as strings
+        assert!(
+            check_source(
+                r#"import "strings" as strings
 strings:AlphabetRange("AA", "Z")"#
-        ).is_err());
-        assert!(check_source(
-            r#"import "strings" as strings
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
 strings:AlphabetRange("A", "z")"#
-        ).is_err());
-        assert!(check_source(
-            r#"import "strings" as strings
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
 strings:AlphabetRange("1", "9")"#
-        ).is_err());
-        assert!(check_source(
-            r#"import "strings" as strings
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
 strings:AlphabetRange("Я", "Я")"#
-        ).is_err());
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -4988,18 +4992,27 @@ strings:AlphabetRange(start, end)"#;
 
     #[test]
     fn ascii_string_functions_validate_argument_types_and_counts() {
-        assert!(check_source(
-            r#"import "strings" as strings
+        assert!(
+            check_source(
+                r#"import "strings" as strings
 strings:AlphabetRange(1, "Z")"#
-        ).is_err());
-        assert!(check_source(
-            r#"import "strings" as strings
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
 strings:IsAsciiUppercase(1)"#
-        ).is_err());
-        assert!(check_source(
-            r#"import "strings" as strings
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
 strings:IsAsciiLowercase("a", "b")"#
-        ).is_err());
+            )
+            .is_err()
+        );
     }
 
     #[test]
