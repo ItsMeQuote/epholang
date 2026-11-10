@@ -491,7 +491,7 @@ fn lex_chars(chars: &[SourceChar], eof_span: Span) -> EResult<Vec<Token>> {
             continue;
         }
 
-        if "+-*/%^(){}[],;=<>!:".contains(c) {
+        if "+-*/%^(){}[],;=<>!:|".contains(c) {
             tokens.push(Token {
                 kind: TokenKind::Symbol(c.to_string()),
                 span: chars[i].span,
@@ -579,6 +579,36 @@ enum Type {
 
 impl Type {
     fn from_name(name: &str) -> Option<Self> {
+        let name = name.trim();
+        let members = split_type_union(name)?;
+
+        if members.len() > 1 {
+            let mut union = Vec::new();
+
+            for member in members {
+                match Self::from_name(member)? {
+                    Self::Union(nested) => {
+                        for ty in nested {
+                            if !union.contains(&ty) {
+                                union.push(ty);
+                            }
+                        }
+                    }
+                    ty => {
+                        if !union.contains(&ty) {
+                            union.push(ty);
+                        }
+                    }
+                }
+            }
+
+            return match union.len() {
+                0 => None,
+                1 => union.pop(),
+                _ => Some(Self::Union(union)),
+            };
+        }
+
         match name {
             "int" => Some(Self::Int),
             "flt" => Some(Self::Flt),
@@ -588,18 +618,173 @@ impl Type {
             "type" => Some(Self::Meta),
             _ => {
                 let inner = name.strip_prefix("ls<")?.strip_suffix('>')?;
-                match Self::from_name(inner)? {
-                    ty @ (Self::Int | Self::Flt | Self::Str | Self::Bool | Self::None) => {
-                        Some(Self::List(Box::new(ty)))
-                    }
-                    _ => None,
+                let inner_type = Self::from_name(inner)?;
+
+                if inner_type.is_list_element() {
+                    Some(Self::List(Box::new(inner_type)))
+                } else {
+                    None
                 }
             }
         }
     }
+
+    fn name(&self) -> String {
+        match self {
+            Self::Int => "int".into(),
+            Self::Flt => "flt".into(),
+            Self::Str => "str".into(),
+            Self::Bool => "bool".into(),
+            Self::None => "none".into(),
+            Self::Meta => "type".into(),
+            Self::List(inner) => format!("ls<{}>", inner.name()),
+            Self::Union(members) => members
+                .iter()
+                .map(Self::name)
+                .collect::<Vec<_>>()
+                .join(" | "),
+        }
+    }
+
+    fn is_list_element(&self) -> bool {
+        match self {
+            Self::Int | Self::Flt | Self::Str | Self::Bool | Self::None => true,
+            Self::Union(members) => members.iter().all(Self::is_list_element),
+            Self::Meta | Self::List(_) => false,
+        }
+    }
 }
 
-const ELEMENT_TYPES: [&str; 5] = ["int", "flt", "str", "bool", "none"];
+fn split_type_union(name: &str) -> Option<Vec<&str>> {
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    let mut members = Vec::new();
+
+    for (index, character) in name.char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' => {
+                depth = depth.checked_sub(1)?;
+            }
+            '|' if depth == 0 => {
+                members.push(name[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+
+    if depth != 0 {
+        return None;
+    }
+
+    members.push(name[start..].trim());
+
+    if members.iter().any(|member| member.is_empty()) {
+        None
+    } else {
+        Some(members)
+    }
+}
+
+fn type_accepts(expected: &str, actual: &str) -> bool {
+    let expected = match Type::from_name(expected) {
+        Some(ty) => ty,
+        None => return false,
+    };
+    let actual = match Type::from_name(actual) {
+        Some(ty) => ty,
+        None => return false,
+    };
+
+    let expected_members: Vec<&Type> = match &expected {
+        Type::Union(members) => members.iter().collect(),
+        ty => vec![ty],
+    };
+    let actual_members: Vec<&Type> = match &actual {
+        Type::Union(members) => members.iter().collect(),
+        ty => vec![ty],
+    };
+
+    actual_members
+        .iter()
+        .all(|actual| expected_members.contains(actual))
+}
+
+fn type_contains(name: &str, target: &Type) -> bool {
+    match Type::from_name(name) {
+        Some(Type::Union(members)) => members.contains(target),
+        Some(ty) => &ty == target,
+        None => false,
+    }
+}
+
+fn list_element_type(name: &str) -> Option<String> {
+    let list_type = Type::from_name(name)?;
+    let members: Vec<&Type> = match &list_type {
+        Type::Union(members) => members.iter().collect(),
+        ty => vec![ty],
+    };
+    let mut element_types = Vec::new();
+
+    for member in members {
+        let Type::List(inner) = member else {
+            return None;
+        };
+
+        match inner.as_ref() {
+            Type::Union(nested) => {
+                for ty in nested {
+                    if !element_types.contains(ty) {
+                        element_types.push(ty.clone());
+                    }
+                }
+            }
+            ty => {
+                if !element_types.contains(ty) {
+                    element_types.push(ty.clone());
+                }
+            }
+        }
+    }
+
+    match element_types.len() {
+        0 => None,
+        1 => element_types.pop().map(|ty| ty.name()),
+        _ => Some(Type::Union(element_types).name()),
+    }
+}
+
+fn list_accepts_element(list_type: &str, element_type: &str) -> bool {
+    let Some(list_type) = Type::from_name(list_type) else {
+        return false;
+    };
+    let members: Vec<&Type> = match &list_type {
+        Type::Union(members) => members.iter().collect(),
+        ty => vec![ty],
+    };
+
+    !members.is_empty()
+        && members.iter().all(|member| match member {
+            Type::List(inner) => type_accepts(&inner.name(), element_type),
+            _ => false,
+        })
+}
+
+fn is_list_type(name: &str) -> bool {
+    let Some(ty) = Type::from_name(name) else {
+        return false;
+    };
+    match ty {
+        Type::List(_) => true,
+        Type::Union(members) => members.iter().all(|member| matches!(member, Type::List(_))),
+        _ => false,
+    }
+}
+
+fn valid_list_element_type(name: &str) -> bool {
+    Type::from_name(name).is_some_and(|ty| ty.is_list_element())
+}
 
 fn valid_type(name: &str) -> bool {
     Type::from_name(name).is_some()
@@ -884,31 +1069,52 @@ impl Parser {
         }
     }
 
+    fn parse_type_atom(&mut self) -> EResult<String> {
+        let name = self.expect_name()?;
+
+        if name.text == "ls" {
+            let inner = self.parse_element_type()?;
+            Ok(format!("ls<{}>", inner))
+        } else {
+            Ok(name.text)
+        }
+    }
+
+    fn parse_type_union(&mut self) -> EResult<String> {
+        let mut members = vec![self.parse_type_atom()?];
+
+        while self.symbol("|") {
+            self.advance();
+            members.push(self.parse_type_atom()?);
+        }
+
+        let name = members.join(" | ");
+
+        if let Some(ty) = Type::from_name(&name) {
+            Ok(ty.name())
+        } else {
+            Ok(name)
+        }
+    }
+
     fn parse_element_type(&mut self) -> EResult<String> {
         self.expect_symbol("<")?;
+        let inner_span = self.current().span;
+        let inner = self.parse_type_union()?;
 
-        let inner = self.expect_name()?;
-
-        if !ELEMENT_TYPES.contains(&inner.text.as_str()) {
-            return Err(Diagnostic::new(inner.span, "Invalid list element type"));
+        if !valid_list_element_type(&inner) {
+            return Err(Diagnostic::new(inner_span, "Invalid list element type"));
         }
 
         self.expect_symbol(">")?;
-        Ok(inner.text)
+        Ok(inner)
     }
 
     fn parse_type(&mut self) -> EResult<TypeAnn> {
-        let name = self.expect_name()?;
-        let span = name.span;
+        let span = self.current().span;
+        let name = self.parse_type_union()?;
 
-        let text = if name.text == "ls" {
-            let inner = self.parse_element_type()?;
-            format!("ls<{}>", inner)
-        } else {
-            name.text
-        };
-
-        Ok(TypeAnn { name: text, span })
+        Ok(TypeAnn { name, span })
     }
 
     fn parse_program(&mut self) -> EResult<Vec<Stmt>> {
@@ -977,7 +1183,8 @@ impl Parser {
                 check_reserved(&parameter_name)?;
                 let parameter_type = self.parse_type()?;
                 if !valid_type(&parameter_type.name)
-                    || matches!(parameter_type.name.as_str(), "none" | "type")
+                    || type_contains(&parameter_type.name, &Type::None)
+                    || type_contains(&parameter_type.name, &Type::Meta)
                 {
                     return Err(Diagnostic::new(
                         parameter_type.span,
@@ -1192,21 +1399,10 @@ impl Parser {
         }
 
         if matches!(&self.current().kind, TokenKind::Identifier(_)) {
-            let is_declaration = if let TokenKind::Identifier(t) = self.look(1) {
-                if t == "ls" {
-                    matches!(
-                        self.look(2),
-                        TokenKind::Symbol(s) if s == "<"
-                    )
-                } else {
-                    matches!(
-                        self.look(2),
-                        TokenKind::Symbol(s) if s == ":="
-                    )
-                }
-            } else {
-                false
-            };
+            let saved = self.pos;
+            self.advance();
+            let is_declaration = self.parse_type().is_ok() && self.symbol(":=");
+            self.pos = saved;
 
             if is_declaration {
                 let name = self.expect_name()?;
@@ -1214,7 +1410,7 @@ impl Parser {
 
                 let declared_type = self.parse_type()?;
 
-                if declared_type.name == "type" {
+                if type_contains(&declared_type.name, &Type::Meta) {
                     return Err(Diagnostic::new(
                         declared_type.span,
                         "Cannot declare a variable of type 'type'",
@@ -1809,7 +2005,7 @@ impl Checker {
                 value,
             } => {
                 if let Some(ty) = self.expr_type(value) {
-                    if ty != declared_type.name {
+                    if !type_accepts(&declared_type.name, &ty) {
                         self.err(
                             value.span,
                             format!(
@@ -1828,7 +2024,7 @@ impl Checker {
                 let target_type = self.target_type(name);
 
                 if let (Some(value_type), Some(target_type)) = (value_type, target_type) {
-                    if value_type != target_type {
+                    if !type_accepts(&target_type, &value_type) {
                         self.err(
                             value.span,
                             format!(
@@ -1847,10 +2043,10 @@ impl Checker {
                 let target_type = self.target_type(name);
 
                 if let Some(target_type) = target_type {
-                    match list_inner(&target_type) {
-                        Some(inner) => {
+                    match list_element_type(&target_type) {
+                        Some(_) => {
                             if let Some(value_type) = value_type {
-                                if value_type != inner {
+                                if !list_accepts_element(&target_type, &value_type) {
                                     self.err(
                                         value.span,
                                         format!(
@@ -1881,7 +2077,7 @@ impl Checker {
                     None => self.err(stmt.span, "return is only allowed inside a function"),
 
                     Some((function, return_type)) => {
-                        if declared_type.name != return_type {
+                        if !type_accepts(&return_type, &declared_type.name) {
                             self.err(
                                 declared_type.span,
                                 format!(
@@ -1894,7 +2090,7 @@ impl Checker {
                 }
 
                 if let Some(value_type) = value_type {
-                    if value_type != declared_type.name {
+                    if !type_accepts(&declared_type.name, &value_type) {
                         self.err(
                             value.span,
                             format!(
@@ -1947,7 +2143,7 @@ impl Checker {
                 body,
             } => {
                 let item_type = match self.expr_type(list_expr) {
-                    Some(ty) => match list_inner(&ty) {
+                    Some(ty) => match list_element_type(&ty) {
                         Some(inner) => Some(inner.to_string()),
 
                         None => {
@@ -2051,7 +2247,7 @@ impl Checker {
             _ => {}
         }
         if let Some(ty) = self.expr_type(index) {
-            if ty != "int" {
+            if !type_accepts("int", &ty) {
                 self.err(index.span, format!("Index must be int, got {}", ty));
             }
         }
@@ -2074,7 +2270,7 @@ impl Checker {
             ExprKind::ListLiteral(inner, elements) => {
                 for element in elements {
                     if let Some(ty) = self.expr_type(element) {
-                        if ty != *inner {
+                        if !type_accepts(inner, &ty) {
                             self.err(
                                 element.span,
                                 format!(
@@ -2150,7 +2346,7 @@ impl Checker {
                     {
                         "bool"
                     }
-                    "==" | "!=" if list_inner(&a).is_some() && a == b => "bool",
+                    "==" | "!=" if is_list_type(&a) && a == b => "bool",
                     _ => {
                         self.err(
                             expr.span,
@@ -2171,8 +2367,8 @@ impl Checker {
                 if array_type == "str" {
                     Some("str".into())
                 } else {
-                    match list_inner(&array_type) {
-                        Some(inner) => Some(inner.to_string()),
+                    match list_element_type(&array_type) {
+                        Some(inner) => Some(inner),
 
                         None => {
                             self.err(array.span, format!("Cannot index into {}", array_type));
@@ -2647,9 +2843,9 @@ impl Checker {
                     let needle = self.expr_type(&args[1]);
 
                     if let (Some(haystack), Some(needle)) = (haystack, needle) {
-                        match list_inner(&haystack) {
-                            Some(inner) => {
-                                if needle != inner {
+                        match list_element_type(&haystack) {
+                            Some(_) => {
+                                if !list_accepts_element(&haystack, &needle) {
                                     self.err(
                                         args[1].span,
                                         format!(
@@ -2661,7 +2857,7 @@ impl Checker {
                             }
 
                             None if haystack == "str" => {
-                                if needle != "str" {
+                                if !type_accepts("str", &needle) {
                                     self.err(
                                         args[1].span,
                                         format!(
@@ -2696,7 +2892,7 @@ impl Checker {
             "Length" => {
                 if self.expect_count(name, args, 1, span) {
                     if let Some(ty) = self.expr_type(&args[0]) {
-                        if ty != "str" && list_inner(&ty).is_none() {
+                        if !type_accepts("str", &ty) && list_element_type(&ty).is_none() {
                             self.err(
                                 args[0].span,
                                 format!("Length() requires a string or list, got {}", ty),
@@ -2726,23 +2922,19 @@ impl Checker {
 
                 let list_type = list_type?;
 
-                let inner = match list_inner(&list_type) {
-                    Some(inner) => inner,
-
-                    None => {
-                        self.err(
-                            args[0].span,
-                            format!(
-                                "{}() expects a list as first argument, got {}",
-                                name, list_type
-                            ),
-                        );
-                        return None;
-                    }
-                };
+                if list_element_type(&list_type).is_none() {
+                    self.err(
+                        args[0].span,
+                        format!(
+                            "{}() expects a list as first argument, got {}",
+                            name, list_type
+                        ),
+                    );
+                    return None;
+                }
 
                 if let Some(ty) = value_type {
-                    if ty != inner {
+                    if !list_accepts_element(&list_type, &ty) {
                         self.err(
                             args[2].span,
                             format!("Cannot insert {} into {}", ty, list_type),
@@ -2796,7 +2988,7 @@ impl Checker {
                     .enumerate()
                 {
                     if let Some(ty) = ty {
-                        if ty != expected {
+                        if !type_accepts(expected, ty) {
                             self.err(
                                 arg.span,
                                 format!(
@@ -3098,7 +3290,7 @@ impl Interpreter {
             } => {
                 let evaluated = self.evaluate(value)?;
 
-                if evaluated.type_name() != declared_type.name {
+                if !type_accepts(&declared_type.name, &evaluated.type_name()) {
                     return Err(Diagnostic::new(
                         value.span,
                         format!(
@@ -3132,7 +3324,7 @@ impl Interpreter {
                 let new_value = self.evaluate(value)?;
                 let variable = self.target_mut(name)?;
 
-                if new_value.type_name() != variable.declared_type {
+                if !type_accepts(&variable.declared_type, &new_value.type_name()) {
                     return Err(Diagnostic::new(
                         value.span,
                         format!(
@@ -3154,7 +3346,7 @@ impl Interpreter {
 
                 match &mut variable.value {
                     Value::List(inner, elements) => {
-                        if new_value.type_name() != *inner {
+                        if !type_accepts(inner, &new_value.type_name()) {
                             return Err(Diagnostic::new(
                                 value.span,
                                 format!(
@@ -3202,7 +3394,7 @@ impl Interpreter {
                     Diagnostic::new(stmt.span, "return is only allowed inside a function")
                 })?;
 
-                if declared_type.name != expected {
+                if !type_accepts(&expected, &declared_type.name) {
                     return Err(Diagnostic::new(
                         declared_type.span,
                         format!(
@@ -3214,7 +3406,7 @@ impl Interpreter {
 
                 let result = self.evaluate(value)?;
 
-                if result.type_name() != declared_type.name {
+                if !type_accepts(&declared_type.name, &result.type_name()) {
                     return Err(Diagnostic::new(
                         value.span,
                         format!(
@@ -3351,7 +3543,7 @@ impl Interpreter {
                 for element in elements {
                     let value = self.evaluate(element)?;
 
-                    if value.type_name() != *inner {
+                    if !type_accepts(inner, &value.type_name()) {
                         return Err(Diagnostic::new(
                             element.span,
                             format!(
@@ -4170,7 +4362,7 @@ impl Interpreter {
                     }
 
                     Value::List(inner, elements) => {
-                        if needle.type_name() != inner {
+                        if !type_accepts(&inner, &needle.type_name()) {
                             return Err(Diagnostic::new(
                                 args[1].span,
                                 format!(
@@ -4247,7 +4439,7 @@ impl Interpreter {
                     }
                 };
 
-                if element.type_name() != inner {
+                if !type_accepts(&inner, &element.type_name()) {
                     return Err(Diagnostic::new(
                         args[2].span,
                         format!("Cannot insert {} into ls<{}>", element.type_name(), inner),
@@ -4357,7 +4549,7 @@ impl Interpreter {
                 )
             })?;
 
-            if value.type_name() != parameter.declared_type.name {
+            if !type_accepts(&parameter.declared_type.name, &value.type_name()) {
                 return Err(Diagnostic::new(
                     value_span,
                     format!(
@@ -4406,7 +4598,7 @@ impl Interpreter {
             }
         };
 
-        if value.type_name() != definition.return_type.name {
+        if !type_accepts(&definition.return_type.name, &value.type_name()) {
             return Err(Diagnostic::new(
                 definition.return_type.span,
                 format!(
@@ -5246,5 +5438,124 @@ Output(Includes(items, ""))"#;
         assert_eq!(exact_integer_quotient(1, 3), None);
         assert_eq!(exact_integer_quotient(0, 3), Some(0.0));
         assert_eq!(exact_integer_quotient(1, 0), None);
+    }
+}
+
+#[cfg(test)]
+mod union_type_tests {
+    use super::*;
+
+    #[test]
+    fn union_types_parse_in_declarations_parameters_and_returns() {
+        let source = r#"
+            function Echo(value int | str) int | str {
+                return int | str value
+            }
+            item int | str := 42
+            item = "answer"
+            Echo(item)
+        "#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_union_source(source), Value::Str("answer".into()));
+    }
+
+    #[test]
+    fn union_lists_accept_each_declared_member() {
+        let source = r#"
+            values ls<int | str> := list<int | str>{1, "two", 3}
+            Includes(values, "two")
+        "#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_union_source(source), Value::Bool(true));
+    }
+
+    #[test]
+    fn union_lists_return_union_element_types() {
+        let source = r#"
+            values ls<int | str> := list<int | str>{1, "two"}
+            values[2]
+        "#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_union_source(source), Value::Str("two".into()));
+    }
+
+    #[test]
+    fn union_of_list_types_can_be_indexed_and_measured() {
+        let source = r#"
+            values ls<int> | ls<str> := list<int>{1, 2}
+            Length(values)
+        "#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_union_source(source), Value::Int(2));
+    }
+
+    #[test]
+    fn union_types_reject_values_outside_the_union() {
+        let source = "value int | str := true";
+        assert!(matches!(check_source(source), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn union_list_elements_reject_values_outside_the_union() {
+        let source = "values ls<int | str> := list<int | str>{1, true}";
+        assert!(matches!(check_source(source), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn union_of_list_types_rejects_unsafe_mutation() {
+        let source = r#"
+            values ls<int> | ls<str> := list<int>{1, 2}
+            values[1] = "text"
+        "#;
+
+        assert!(matches!(check_source(source), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn function_arguments_accept_union_members_but_not_unrelated_types() {
+        let accepted = r#"
+            function Echo(value int | str) int | str {
+                return int | str value
+            }
+            Echo("text")
+        "#;
+        let rejected = r#"
+            function Number(value int) int {
+                return int value
+            }
+            item int | str := "text"
+            Number(item)
+        "#;
+
+        assert!(check_source(accepted).is_ok());
+        assert!(matches!(check_source(rejected), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn union_types_are_flattened_and_deduplicated() {
+        let ty = Type::from_name("int | str | int").unwrap();
+        assert_eq!(ty.name(), "int | str");
+        assert!(type_accepts("int | str", "int"));
+        assert!(!type_accepts("int", "int | str"));
+    }
+
+    fn evaluate_union_source(source: &str) -> Value {
+        let program = match check_source(source) {
+            Ok(program) => program,
+            Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
+            Err(Failure::Syntax(error)) => panic!("Syntax error: {:?}", error),
+            Err(Failure::Runtime(error)) => panic!("Runtime error: {:?}", error),
+        };
+        let mut interpreter = Interpreter::new();
+        let (last, previous) = program.split_last().expect("Non-empty program");
+        interpreter.execute_block(previous).unwrap();
+        match &last.kind {
+            Statement::Expression(expr) => interpreter.evaluate(expr).unwrap(),
+            _ => panic!("Last statement must be an expression"),
+        }
     }
 }
