@@ -2596,7 +2596,7 @@ impl Checker {
             _ => {
                 self.err(
                     args[1].span,
-                    "The conversion target must be a literal int, flt, str or bool",
+                    "The conversion target must be a literal int, flt, str, bool or ls<str>",
                 );
                 return None;
             }
@@ -2898,9 +2898,9 @@ fn exact_integer_quotient(a: i64, b: i64) -> Option<f64> {
     result.is_finite().then_some(result)
 }
 
-// Type conversion is explicit; conversion to/from lists and none is unsupported.
+// Type conversion is explicit; only str -> ls<str> is supported for lists in 0.2.0.
 fn simple_convert_target(target: &str) -> bool {
-    matches!(target, "int" | "flt" | "str" | "bool")
+    matches!(target, "int" | "flt" | "str" | "bool" | "ls<str>")
 }
 
 fn supported_conversion(source: &str, target: &str) -> bool {
@@ -2913,6 +2913,7 @@ fn supported_conversion(source: &str, target: &str) -> bool {
         ("flt", "int" | "str") => true,
         ("str", "int" | "flt" | "bool") => true,
         ("bool", "str") => true,
+        ("str", "ls<str>") => true,
         _ => false,
     }
 }
@@ -2951,6 +2952,12 @@ fn convert_value(value: &Value, target: &str) -> Option<Value> {
             _ => None,
         },
         (Value::Bool(n), "str") => Some(Value::Str(n.to_string())),
+        (Value::Str(text), "ls<str>") => Some(Value::List(
+            "str".into(),
+            text.chars()
+                .map(|character| Value::Str(character.to_string()))
+                .collect(),
+        )),
         _ => None,
     }
 }
@@ -4013,7 +4020,7 @@ impl Interpreter {
             _ => {
                 return Err(Diagnostic::new(
                     args[1].span,
-                    "The conversion target must be a literal int, flt, str or bool",
+                    "The conversion target must be a literal int, flt, str, bool or ls<str>",
                 ));
             }
         };
@@ -4830,6 +4837,77 @@ mod stage2_tests {
         assert!(types("types:Convert(9223372036854775807, flt)").is_err());
         assert!(types("types:Convert(9223372036854775808.0, int)").is_err());
         assert!(types("types:Convert(\"bad\", int)").is_err());
+    }
+
+
+    #[test]
+    fn convert_string_to_list_of_strings() {
+        assert_eq!(
+            types(r#"types:Convert("hello", ls<str>)"#).unwrap(),
+            Value::List(
+                "str".into(),
+                ["h", "e", "l", "l", "o"]
+                    .into_iter()
+                    .map(|character| Value::Str(character.into()))
+                    .collect()
+            )
+        );
+    }
+
+    #[test]
+    fn convert_string_to_list_of_strings_supports_unicode_scalar_values() {
+        assert_eq!(
+            types(r#"types:Convert("Привет", ls<str>)"#).unwrap(),
+            Value::List(
+                "str".into(),
+                ["П", "р", "и", "в", "е", "т"]
+                    .into_iter()
+                    .map(|character| Value::Str(character.into()))
+                    .collect()
+            )
+        );
+        assert_eq!(
+            types(r#"types:Convert("A🙂Б", ls<str>)"#).unwrap(),
+            Value::List(
+                "str".into(),
+                ["A", "🙂", "Б"]
+                    .into_iter()
+                    .map(|character| Value::Str(character.into()))
+                    .collect()
+            )
+        );
+    }
+
+    #[test]
+    fn convert_empty_string_to_empty_string_list() {
+        assert_eq!(
+            types(r#"types:Convert("", ls<str>)"#).unwrap(),
+            Value::List("str".into(), Vec::new())
+        );
+    }
+
+    #[test]
+    fn is_convertible_supports_string_to_string_list() {
+        assert_eq!(
+            types(r#"types:IsConvertible("hello", ls<str>)"#).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            types(r#"types:IsConvertible(123, ls<str>)"#).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn string_to_list_conversion_rejects_other_list_targets() {
+        assert!(check_source(
+            r#"import "types" as types
+types:Convert("hello", ls<int>)"#
+        ).is_err());
+        assert!(check_source(
+            r#"import "types" as types
+types:Convert(123, ls<str>)"#
+        ).is_err());
     }
 
     #[test]
