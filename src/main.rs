@@ -4769,7 +4769,6 @@ mod stage2_tests {
         );
     }
 
-
     #[test]
     fn string_indexing_is_one_based_and_returns_str() {
         assert_eq!(
