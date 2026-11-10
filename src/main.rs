@@ -4839,7 +4839,6 @@ mod stage2_tests {
         assert!(types("types:Convert(\"bad\", int)").is_err());
     }
 
-
     #[test]
     fn convert_string_to_list_of_strings() {
         assert_eq!(
@@ -4900,14 +4899,20 @@ mod stage2_tests {
 
     #[test]
     fn string_to_list_conversion_rejects_other_list_targets() {
-        assert!(check_source(
-            r#"import "types" as types
+        assert!(
+            check_source(
+                r#"import "types" as types
 types:Convert("hello", ls<int>)"#
-        ).is_err());
-        assert!(check_source(
-            r#"import "types" as types
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "types" as types
 types:Convert(123, ls<str>)"#
-        ).is_err());
+            )
+            .is_err()
+        );
     }
 
     #[test]
