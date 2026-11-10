@@ -642,6 +642,8 @@ fn check_reserved(name: &Name) -> EResult<()> {
         "false",
         "null",
         "loop",
+        "break",
+        "skip",
         "if",
         "otherwise",
         "return",
@@ -754,6 +756,9 @@ enum Statement {
         declared_type: TypeAnn,
         value: Expr,
     },
+
+    Break,
+    Skip,
 
     Function(FunctionDef),
 
@@ -1117,6 +1122,16 @@ impl Parser {
                 self.current().span,
                 "'otherwise' without a preceding 'if'",
             ));
+        }
+
+        if self.identifier_is("break") {
+            self.advance();
+            return Ok(Statement::Break);
+        }
+
+        if self.identifier_is("skip") {
+            self.advance();
+            return Ok(Statement::Skip);
         }
 
         if self.identifier_is("return") {
@@ -1555,6 +1570,7 @@ struct Checker {
     errors: Vec<Diagnostic>,
     seen_non_import: bool,
     imported_paths: Vec<String>,
+    loop_depth: usize,
 }
 
 impl Checker {
@@ -1567,6 +1583,7 @@ impl Checker {
             errors: Vec::new(),
             seen_non_import: false,
             imported_paths: Vec::new(),
+            loop_depth: 0,
         }
     }
 
@@ -1860,6 +1877,20 @@ impl Checker {
                 }
             }
 
+            Statement::Break | Statement::Skip => {
+                if self.loop_depth == 0 {
+                    let keyword = if matches!(&stmt.kind, Statement::Break) {
+                        "break"
+                    } else {
+                        "skip"
+                    };
+                    self.err(
+                        stmt.span,
+                        format!("'{}' is only allowed inside a loop", keyword),
+                    );
+                }
+            }
+
             Statement::If {
                 branches,
                 otherwise_body,
@@ -1876,7 +1907,9 @@ impl Checker {
 
             Statement::While { condition, body } => {
                 self.expect_bool(condition, "loop");
+                self.loop_depth += 1;
                 self.check_scoped_block(body);
+                self.loop_depth -= 1;
             }
 
             Statement::CycleIn {
@@ -1904,7 +1937,9 @@ impl Checker {
                 // expression has a wrong type.
                 self.scopes.push(HashMap::new());
                 self.declare(item_name, item_type, "loop variable");
+                self.loop_depth += 1;
                 self.check_block(body);
+                self.loop_depth -= 1;
 
                 let scope = self.scopes.pop().unwrap();
                 self.report_unused(scope);
@@ -1943,6 +1978,9 @@ impl Checker {
 
         self.current_function = Some((name.text.clone(), definition.return_type.name.clone()));
 
+        let enclosing_loop_depth = self.loop_depth;
+        self.loop_depth = 0;
+
         self.scopes.push(HashMap::new());
 
         for parameter in &definition.parameters {
@@ -1968,6 +2006,7 @@ impl Checker {
         let scope = self.scopes.pop().unwrap();
         self.report_unused(scope);
         self.current_function = None;
+        self.loop_depth = enclosing_loop_depth;
     }
 
     fn check_index_expr(&mut self, index: &Expr) {
@@ -2705,6 +2744,13 @@ struct Variable {
     value: Value,
 }
 
+enum ExecFlow {
+    Continue,
+    Return(Value),
+    Break,
+    Skip,
+}
+
 struct Interpreter {
     scopes: Vec<HashMap<String, Variable>>,
     functions: HashMap<String, FunctionDef>,
@@ -2902,11 +2948,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn run_scoped(
-        &mut self,
-        body: &[Stmt],
-        scope: HashMap<String, Variable>,
-    ) -> EResult<Option<Value>> {
+    fn run_scoped(&mut self, body: &[Stmt], scope: HashMap<String, Variable>) -> EResult<ExecFlow> {
         self.scopes.push(scope);
 
         let result = self.execute_block(body);
@@ -2915,17 +2957,18 @@ impl Interpreter {
         result
     }
 
-    fn execute_block(&mut self, statements: &[Stmt]) -> EResult<Option<Value>> {
+    fn execute_block(&mut self, statements: &[Stmt]) -> EResult<ExecFlow> {
         for stmt in statements {
-            if let Some(value) = self.execute_stmt(stmt)? {
-                return Ok(Some(value));
+            let flow = self.execute_stmt(stmt)?;
+            if !matches!(flow, ExecFlow::Continue) {
+                return Ok(flow);
             }
         }
 
-        Ok(None)
+        Ok(ExecFlow::Continue)
     }
 
-    fn execute_stmt(&mut self, stmt: &Stmt) -> EResult<Option<Value>> {
+    fn execute_stmt(&mut self, stmt: &Stmt) -> EResult<ExecFlow> {
         match &stmt.kind {
             Statement::Import { path, alias } => {
                 let scope = self.scopes.last_mut().unwrap();
@@ -3093,8 +3136,12 @@ impl Interpreter {
                     ));
                 }
 
-                return Ok(Some(result));
+                return Ok(ExecFlow::Return(result));
             }
+
+            Statement::Break => return Ok(ExecFlow::Break),
+
+            Statement::Skip => return Ok(ExecFlow::Skip),
 
             Statement::If {
                 branches,
@@ -3138,8 +3185,11 @@ impl Interpreter {
                     break;
                 }
 
-                if let Some(value) = self.run_scoped(body, HashMap::new())? {
-                    return Ok(Some(value));
+                match self.run_scoped(body, HashMap::new())? {
+                    ExecFlow::Continue => {}
+                    ExecFlow::Return(value) => return Ok(ExecFlow::Return(value)),
+                    ExecFlow::Break => break,
+                    ExecFlow::Skip => continue,
                 }
             },
 
@@ -3171,14 +3221,17 @@ impl Interpreter {
                         },
                     );
 
-                    if let Some(value) = self.run_scoped(body, scope)? {
-                        return Ok(Some(value));
+                    match self.run_scoped(body, scope)? {
+                        ExecFlow::Continue => {}
+                        ExecFlow::Return(value) => return Ok(ExecFlow::Return(value)),
+                        ExecFlow::Break => break,
+                        ExecFlow::Skip => continue,
                     }
                 }
             }
         }
 
-        Ok(None)
+        Ok(ExecFlow::Continue)
     }
 
     fn evaluate(&mut self, expr: &Expr) -> EResult<Value> {
@@ -4207,17 +4260,30 @@ impl Interpreter {
 
         self.scopes.push(frame);
 
-        let returned = self.execute_block(&definition.body)?;
-
-        let value = returned.ok_or_else(|| {
-            Diagnostic::new(
-                definition.name.span,
-                format!(
-                    "Function '{}' finished without return",
-                    definition.name.text
-                ),
-            )
-        })?;
+        let value = match self.execute_block(&definition.body)? {
+            ExecFlow::Return(value) => value,
+            ExecFlow::Continue => {
+                return Err(Diagnostic::new(
+                    definition.name.span,
+                    format!(
+                        "Function '{}' finished without return",
+                        definition.name.text
+                    ),
+                ));
+            }
+            ExecFlow::Break => {
+                return Err(Diagnostic::new(
+                    definition.name.span,
+                    "'break' cannot escape a function",
+                ));
+            }
+            ExecFlow::Skip => {
+                return Err(Diagnostic::new(
+                    definition.name.span,
+                    "'skip' cannot escape a function",
+                ));
+            }
+        };
 
         if value.type_name() != definition.return_type.name {
             return Err(Diagnostic::new(
@@ -4432,6 +4498,107 @@ mod stage2_tests {
 
     fn types(expr: &str) -> EResult<Value> {
         evaluate_checked(&format!("import \"types\" as types\n{}", expr))
+    }
+
+    #[test]
+    fn break_and_skip_control_while_loops() {
+        let source = r#"
+            i int := 0
+            total int := 0
+            loop i < 10 {
+                i = i + 1
+                if i == 2 {
+                    skip
+                }
+                if i == 5 {
+                    break
+                }
+                total = total + i
+            }
+            total
+        "#;
+
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Int(8));
+    }
+
+    #[test]
+    fn break_and_skip_control_for_in_loops() {
+        let source = r#"
+            values ls<int> := list<int>{1, 2, 3, 4}
+            total int := 0
+            loop item in values {
+                if item == 2 {
+                    skip
+                }
+                total = total + item
+                if item == 3 {
+                    break
+                }
+            }
+            total
+        "#;
+
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Int(4));
+    }
+
+    #[test]
+    fn loop_control_only_affects_the_nearest_nested_loop() {
+        let source = r#"
+            outer int := 0
+            total int := 0
+            loop outer < 3 {
+                outer = outer + 1
+                inner int := 0
+                loop inner < 4 {
+                    inner = inner + 1
+                    if inner == 2 {
+                        break
+                    }
+                    total = total + 1
+                }
+            }
+            total
+        "#;
+
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Int(3));
+    }
+
+    #[test]
+    fn loop_control_is_rejected_outside_loops() {
+        assert!(matches!(check_source("break"), Err(Failure::Static(_))));
+        assert!(matches!(check_source("skip"), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn function_cannot_control_a_callers_loop() {
+        let source = r#"
+            function Invalid() int {
+                break
+                return int 1
+            }
+            loop true {
+                Output(Invalid())
+                break
+            }
+        "#;
+
+        assert!(matches!(check_source(source), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn loop_control_is_allowed_inside_a_functions_own_loop() {
+        let source = r#"
+            function First() int {
+                loop true {
+                    break
+                }
+                return int 1
+            }
+            Output(First())
+        "#;
+
+        assert!(check_source(source).is_ok());
+        assert!(execute(source).is_ok());
     }
 
     #[test]
