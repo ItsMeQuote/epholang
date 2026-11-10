@@ -605,6 +605,35 @@ fn valid_type(name: &str) -> bool {
     Type::from_name(name).is_some()
 }
 
+fn ascii_letter_byte(text: &str) -> Option<u8> {
+    let bytes = text.as_bytes();
+
+    if bytes.len() == 1 && (bytes[0].is_ascii_uppercase() || bytes[0].is_ascii_lowercase()) {
+        Some(bytes[0])
+    } else {
+        None
+    }
+}
+
+fn ascii_alphabet_range(from: &str, to: &str) -> Result<String, &'static str> {
+    let start = ascii_letter_byte(from)
+        .ok_or("AlphabetRange() start must be exactly one ASCII letter (A-Z or a-z)")?;
+    let end = ascii_letter_byte(to)
+        .ok_or("AlphabetRange() end must be exactly one ASCII letter (A-Z or a-z)")?;
+
+    if start.is_ascii_uppercase() != end.is_ascii_uppercase() {
+        return Err("AlphabetRange() endpoints must use the same case");
+    }
+
+    let bytes: Box<dyn Iterator<Item = u8>> = if start <= end {
+        Box::new(start..=end)
+    } else {
+        Box::new((end..=start).rev())
+    };
+
+    Ok(bytes.map(char::from).collect())
+}
+
 fn list_inner(name: &str) -> Option<&str> {
     name.strip_prefix("ls<")?.strip_suffix('>')
 }
@@ -2339,6 +2368,55 @@ impl Checker {
                 Some("str".into())
             }
 
+            "AlphabetRange" => {
+                if self.expect_count_mod(&full_name, args, 2, span) {
+                    check_str(self, &args[0]);
+                    check_str(self, &args[1]);
+
+                    let start = match &args[0].kind {
+                        ExprKind::Literal(Value::Str(text)) => match ascii_letter_byte(text) {
+                            Some(value) => Some(value),
+                            None => {
+                                self.err(
+                                    args[0].span,
+                                    "AlphabetRange() start must be exactly one ASCII letter (A-Z or a-z)",
+                                );
+                                None
+                            }
+                        },
+                        _ => None,
+                    };
+
+                    let end = match &args[1].kind {
+                        ExprKind::Literal(Value::Str(text)) => match ascii_letter_byte(text) {
+                            Some(value) => Some(value),
+                            None => {
+                                self.err(
+                                    args[1].span,
+                                    "AlphabetRange() end must be exactly one ASCII letter (A-Z or a-z)",
+                                );
+                                None
+                            }
+                        },
+                        _ => None,
+                    };
+
+                    if let (Some(start), Some(end)) = (start, end) {
+                        if start.is_ascii_uppercase() != end.is_ascii_uppercase() {
+                            self.err(span, "AlphabetRange() endpoints must use the same case");
+                        }
+                    }
+                }
+                Some("str".into())
+            }
+
+            "IsAsciiUppercase" | "IsAsciiLowercase" => {
+                if self.expect_count_mod(&full_name, args, 1, span) {
+                    check_str(self, &args[0]);
+                }
+                Some("bool".into())
+            }
+
             "Repeat" => {
                 if self.expect_count_mod(&full_name, args, 2, span) {
                     check_str(self, &args[0]);
@@ -3535,9 +3613,10 @@ impl Interpreter {
         }
 
         let expected = match function.text.as_str() {
-            "Trim" | "Split" | "StartsWith" | "EndsWith" | "Repeat" => 2,
+            "Trim" | "Split" | "StartsWith" | "EndsWith" | "Repeat" | "AlphabetRange" => 2,
             "Replace" => 3,
-            "ToLowerCase" | "ToUpperCase" | "Capitalize" => 1,
+            "ToLowerCase" | "ToUpperCase" | "Capitalize" | "IsAsciiUppercase"
+            | "IsAsciiLowercase" => 1,
             _ => {
                 return Err(Diagnostic::new(
                     function.span,
@@ -3666,6 +3745,30 @@ impl Interpreter {
                 } else {
                     Ok(Value::Bool(text.ends_with(part.as_str())))
                 }
+            }
+
+            "AlphabetRange" => {
+                let from = as_str(&vals[0].0, vals[0].1)?;
+                let to = as_str(&vals[1].0, vals[1].1)?;
+
+                match ascii_alphabet_range(&from, &to) {
+                    Ok(result) => Ok(Value::Str(result)),
+                    Err(message) => Err(Diagnostic::new(span, message)),
+                }
+            }
+
+            "IsAsciiUppercase" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                Ok(Value::Bool(
+                    !text.is_empty() && text.chars().all(|ch| ch.is_ascii_uppercase()),
+                ))
+            }
+
+            "IsAsciiLowercase" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                Ok(Value::Bool(
+                    !text.is_empty() && text.chars().all(|ch| ch.is_ascii_lowercase()),
+                ))
             }
 
             "ToLowerCase" => {
@@ -4766,6 +4869,149 @@ mod stage2_tests {
         assert!(check_source("import \"types\" as types\ntypes:Convert(1, TypeOf(1))").is_err());
         assert!(
             check_source("import \"types\" as types\ntypes:IsConvertible(1, ls<int>)").is_err()
+        );
+    }
+
+    fn strings(expr: &str) -> EResult<Value> {
+        evaluate_checked(&format!("import \"strings\" as strings\n{}", expr))
+    }
+
+    #[test]
+    fn alphabet_range_supports_inclusive_uppercase_lowercase_and_reverse_ranges() {
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("A", "F")"#).unwrap(),
+            Value::Str("ABCDEF".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("A", "S")"#).unwrap(),
+            Value::Str("ABCDEFGHIJKLMNOPQRS".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("a", "f")"#).unwrap(),
+            Value::Str("abcdef".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("F", "A")"#).unwrap(),
+            Value::Str("FEDCBA".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("z", "x")"#).unwrap(),
+            Value::Str("zyx".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("M", "M")"#).unwrap(),
+            Value::Str("M".into())
+        );
+    }
+
+    #[test]
+    fn alphabet_range_rejects_invalid_literal_endpoints_statically() {
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+strings:AlphabetRange("AA", "Z")"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+strings:AlphabetRange("A", "z")"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+strings:AlphabetRange("1", "9")"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+strings:AlphabetRange("Я", "Я")"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn alphabet_range_rejects_invalid_dynamic_endpoints_at_runtime() {
+        let source = r#"import "strings" as strings
+start str := "A"
+end str := "z"
+strings:AlphabetRange(start, end)"#;
+        assert!(check_source(source).is_ok());
+        assert!(evaluate_checked(source).is_err());
+    }
+
+    #[test]
+    fn ascii_case_predicates_check_every_character() {
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("ABC")"#).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("A1")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("AbC")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("Я")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("abc")"#).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("a1")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("Abc")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("я")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("")"#).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn ascii_string_functions_validate_argument_types_and_counts() {
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+strings:AlphabetRange(1, "Z")"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+strings:IsAsciiUppercase(1)"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+strings:IsAsciiLowercase("a", "b")"#
+            )
+            .is_err()
         );
     }
 
