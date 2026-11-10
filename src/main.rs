@@ -4772,11 +4772,20 @@ mod stage2_tests {
 
     #[test]
     fn string_indexing_is_one_based_and_returns_str() {
-        assert_eq!(evaluate_checked(r#""hello"[1]"#).unwrap(), Value::Str("h".into()));
-        assert_eq!(evaluate_checked(r#""hello"[5]"#).unwrap(), Value::Str("o".into()));
         assert_eq!(
-            evaluate_checked(r#"text str := "hello"
-text[2]"#).unwrap(),
+            evaluate_checked(r#""hello"[1]"#).unwrap(),
+            Value::Str("h".into())
+        );
+        assert_eq!(
+            evaluate_checked(r#""hello"[5]"#).unwrap(),
+            Value::Str("o".into())
+        );
+        assert_eq!(
+            evaluate_checked(
+                r#"text str := "hello"
+text[2]"#
+            )
+            .unwrap(),
             Value::Str("e".into())
         );
     }
@@ -4803,10 +4812,7 @@ text[2]"#).unwrap(),
             check_source(r#""hello"[0]"#),
             Err(Failure::Static(_))
         ));
-        assert!(matches!(
-            evaluate_checked(r#""hello"[6]"#),
-            Err(_)
-        ));
+        assert!(evaluate_checked(r#""hello"[6]"#).is_err());
     }
 
     #[test]
@@ -4820,8 +4826,10 @@ text[2]"#).unwrap(),
     #[test]
     fn strings_are_not_mutable_through_index_assignment() {
         assert!(matches!(
-            check_source(r#"text str := "hello"
-text[1] = "H""#),
+            check_source(
+                r#"text str := "hello"
+text[1] = "H""#
+            ),
             Err(Failure::Static(_))
         ));
     }
