@@ -4469,7 +4469,7 @@ mod stage1_tests {
             "values ls<int> := list<int>{1, 2, 3}\nOutput(values[1])\nOutput(Length(values))";
         assert!(check_source(source).is_ok());
     }
-
+}
 
 #[cfg(test)]
 mod stage2_tests {
