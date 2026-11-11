@@ -2,30 +2,24 @@ const vscode = require('vscode');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
 
-function runEphoFMT(source, executablePath) {
+const execFileAsync = promisify(execFile);
+
+async function runEphoFMT(source, executablePath) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ephofmt-'));
     const filePath = path.join(directory, 'document.epho');
 
     try {
         fs.writeFileSync(filePath, source, 'utf8');
 
-        const result = spawnSync(executablePath, ['format', filePath], {
+        await execFileAsync(executablePath, ['format', filePath], {
             encoding: 'utf8',
             windowsHide: true,
             timeout: 15000,
             maxBuffer: 10 * 1024 * 1024
         });
-
-        if (result.error) {
-            throw new Error('Could not start Epholang CLI "' + executablePath + '": ' + result.error.message);
-        }
-
-        if (result.status !== 0) {
-            const details = (result.stderr || result.stdout || '').trim();
-            throw new Error(details || ('Epholang CLI exited with code ' + result.status));
-        }
 
         return fs.readFileSync(filePath, 'utf8');
     } finally {
@@ -75,13 +69,13 @@ function activate(context) {
     const formatter = vscode.languages.registerDocumentFormattingEditProvider(
         { language: 'epholang' },
         {
-            provideDocumentFormattingEdits(document) {
+            async provideDocumentFormattingEdits(document) {
                 const executablePath = vscode.workspace
                     .getConfiguration('epholang')
                     .get('executablePath', 'epholang');
 
                 try {
-                    const formatted = runEphoFMT(document.getText(), executablePath);
+                    const formatted = await runEphoFMT(document.getText(), executablePath);
                     return minimalEdit(document, formatted);
                 } catch (error) {
                     vscode.window.showErrorMessage('EphoFMT: ' + error.message);
