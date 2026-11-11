@@ -44,4 +44,16 @@ assert(match('keyword.control.epholang', 'loop'));
 assert(!match('keyword.control.epholang', 'cycle'));
 assert(snippets['Loop with condition'].body.join('\n').includes('loop'));
 assert(snippets['Loop over list'].body.join('\n').includes('loop'));
-console.log('Extension manifest, grammar patterns, comments, interpolation and snippets: OK');
+
+assert.equal(pkg.main, './extension.js');
+assert(pkg.activationEvents.includes('onLanguage:epholang'));
+assert.equal(pkg.contributes.configurationDefaults['[epholang]']['editor.formatOnSave'], true);
+assert.equal(pkg.contributes.configurationDefaults['[epholang]']['editor.insertSpaces'], false);
+assert.equal(pkg.contributes.configuration.properties['epholang.executablePath'].default, 'epholang');
+assert(fs.existsSync(path.join(base, pkg.main)));
+
+const { spawnSync } = await import('node:child_process');
+const syntaxCheck = spawnSync(process.execPath, ['--check', path.join(base, pkg.main)], { encoding: 'utf8' });
+assert.equal(syntaxCheck.status, 0, syntaxCheck.stderr);
+
+console.log('Extension manifest, grammar, snippets and EphoFMT integration: OK');
