@@ -2800,7 +2800,11 @@ impl Checker {
             }
             return None;
         }
-        let arity = if matches!(name, "DeclaredTypeOf" | "CurrentTypeOf") { 1 } else { 2 };
+        let arity = if matches!(name, "DeclaredTypeOf" | "CurrentTypeOf") {
+            1
+        } else {
+            2
+        };
         if !self.expect_count_mod(&format!("{}:{}()", module.text, name), args, arity, span) {
             return None;
         }
@@ -4240,13 +4244,22 @@ impl Interpreter {
             ));
         }
 
-        let arity = if matches!(name, "DeclaredTypeOf" | "CurrentTypeOf") { 1 } else { 2 };
+        let arity = if matches!(name, "DeclaredTypeOf" | "CurrentTypeOf") {
+            1
+        } else {
+            2
+        };
         Self::check_count(&format!("{}:{}", module.text, name), args.len(), arity, span)?;
 
         if name == "DeclaredTypeOf" {
             let variable_name = match &args[0].kind {
                 ExprKind::Variable(variable_name) => variable_name,
-                _ => return Err(Diagnostic::new(args[0].span, "DeclaredTypeOf() requires a variable")),
+                _ => {
+                    return Err(Diagnostic::new(
+                        args[0].span,
+                        "DeclaredTypeOf() requires a variable",
+                    ));
+                }
             };
             let variable = self.lookup(variable_name).ok_or_else(|| {
                 Diagnostic::new(args[0].span, format!("Undefined variable '{}'", variable_name))
@@ -5493,16 +5506,23 @@ mod union_type_tests {
 
     #[test]
     fn declared_and_current_type_of_are_available_in_types_module() {
-        let source = r#"
-            import "types" as types
-            value int | str := 10
-            Output(types:DeclaredTypeOf(value))
-            Output(types:CurrentTypeOf(value))
-            value = "Hi!"
-            Output(types:DeclaredTypeOf(value))
-            Output(types:CurrentTypeOf(value))
-        "#;
-        assert!(check_source(source).is_ok());
+        let declared = r#"import "types" as types
+value int | str := 10
+types:DeclaredTypeOf(value)"#;
+        let initial = r#"import "types" as types
+value int | str := 10
+types:CurrentTypeOf(value)"#;
+        let updated = r#"import "types" as types
+value int | str := 10
+value = "Hi!"
+types:CurrentTypeOf(value)"#;
+
+        assert_eq!(
+            evaluate_union_source(declared),
+            Value::Type("int | str".into())
+        );
+        assert_eq!(evaluate_union_source(initial), Value::Type("int".into()));
+        assert_eq!(evaluate_union_source(updated), Value::Type("str".into()));
     }
 
     #[test]
