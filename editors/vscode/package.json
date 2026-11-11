@@ -2,7 +2,7 @@
   "name": "epholang-language",
   "displayName": "Epholang",
   "icon": "icon.png",
-  "description": "Syntax highlighting, snippets, and basic editing support for Epholang 0.2.0.",
+  "description": "Syntax highlighting, snippets, and EphoFMT formatting for Epholang 0.2.0.",
   "version": "0.2.0",
   "publisher": "itsmequote",
   "license": "MIT",
