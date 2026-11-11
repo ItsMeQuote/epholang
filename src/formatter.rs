@@ -13,14 +13,13 @@ pub fn format(source: &str) -> Result<String, String> {
     let mut parens = 0usize;
     let mut brackets = 0usize;
     let mut i = 0usize;
+    let mut previous_source_was_newline = false;
 
     fn flush(output: &mut String, line: &mut String, indent: usize) {
         let trimmed = line.trim_matches(|c| c == ' ' || c == '\t' || c == '\r');
         if !trimmed.is_empty() {
             output.push_str(&"\t".repeat(indent));
             output.push_str(trimmed);
-            output.push('\n');
-        } else if !output.is_empty() && !output.ends_with("\n\n") {
             output.push('\n');
         }
         line.clear();
@@ -95,19 +94,30 @@ pub fn format(source: &str) -> Result<String, String> {
                 }
                 if parens > 0 || brackets > 0 {
                     if !line.ends_with(' ') { line.push(' '); }
+                } else if line.trim().is_empty() {
+                    if previous_source_was_newline && !output.is_empty() && !output.ends_with("\n\n") {
+                        output.push('\n');
+                    }
                 } else {
                     flush(&mut output, &mut line, indent);
                 }
+                previous_source_was_newline = true;
             }
             '\n' => {
                 if parens > 0 || brackets > 0 {
                     if !line.ends_with(' ') { line.push(' '); }
+                } else if line.trim().is_empty() {
+                    if previous_source_was_newline && !output.is_empty() && !output.ends_with("\n\n") {
+                        output.push('\n');
+                    }
                 } else {
                     flush(&mut output, &mut line, indent);
                 }
+                previous_source_was_newline = true;
             }
             ';' if parens == 0 && brackets == 0 => {
                 flush(&mut output, &mut line, indent);
+                previous_source_was_newline = false;
             }
             '(' => { parens += 1; line.push(ch); }
             ')' => { parens = parens.saturating_sub(1); line.push(ch); }
@@ -157,6 +167,9 @@ pub fn format(source: &str) -> Result<String, String> {
                 }
             }
             _ => line.push(ch),
+        }
+        if !ch.is_whitespace() {
+            previous_source_was_newline = false;
         }
         i += 1;
     }
