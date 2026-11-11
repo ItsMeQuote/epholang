@@ -4273,7 +4273,10 @@ impl Interpreter {
                 }
             };
             let variable = self.lookup(variable_name).ok_or_else(|| {
-                Diagnostic::new(args[0].span, format!("Undefined variable '{}'", variable_name))
+                Diagnostic::new(
+                    args[0].span,
+                    format!("Undefined variable '{}'", variable_name),
+                )
             })?;
             return Ok(Value::Type(variable.declared_type.clone()));
         }
