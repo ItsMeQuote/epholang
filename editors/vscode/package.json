@@ -46,7 +46,24 @@
         "language": "epholang",
         "path": "./snippets/epholang.json"
       }
-    ]
+    ],
+    "configurationDefaults": {
+      "[epholang]": {
+        "editor.formatOnSave": true,
+        "editor.insertSpaces": false,
+        "editor.detectIndentation": false
+      }
+    },
+    "configuration": {
+      "title": "Epholang",
+      "properties": {
+        "epholang.executablePath": {
+          "type": "string",
+          "default": "epholang",
+          "description": "Path to the Epholang CLI executable used by EphoFMT."
+        }
+      }
+    }
   },
   "repository": {
     "type": "git",
@@ -54,5 +71,9 @@
   },
   "scripts": {
     "test": "node tests/validate-extension.mjs"
-  }
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:epholang"
+  ]
 }
