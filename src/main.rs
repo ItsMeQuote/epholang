@@ -851,7 +851,8 @@ fn check_reserved(name: &Name) -> EResult<()> {
         "Includes",
         "Insert",
         "Remove",
-        "TypeOf",
+        "DeclaredTypeOf",
+        "CurrentTypeOf",
         "true",
         "false",
         "null",
@@ -2789,7 +2790,10 @@ impl Checker {
         span: Span,
     ) -> Option<String> {
         let name = function.text.as_str();
-        if name != "Convert" && name != "IsConvertible" {
+        if !matches!(
+            name,
+            "Convert" | "IsConvertible" | "DeclaredTypeOf" | "CurrentTypeOf"
+        ) {
             self.err(
                 function.span,
                 format!("Unknown function '{}' in module 'types'", name),
@@ -2799,9 +2803,29 @@ impl Checker {
             }
             return None;
         }
-        if !self.expect_count_mod(&format!("{}:{}()", module.text, name), args, 2, span) {
+        let arity = if matches!(name, "DeclaredTypeOf" | "CurrentTypeOf") {
+            1
+        } else {
+            2
+        };
+        if !self.expect_count_mod(&format!("{}:{}()", module.text, name), args, arity, span) {
             return None;
         }
+
+        if name == "DeclaredTypeOf" {
+            if !matches!(&args[0].kind, ExprKind::Variable(_)) {
+                self.err(args[0].span, "DeclaredTypeOf() requires a variable");
+                return None;
+            }
+            self.expr_type(&args[0])?;
+            return Some("type".into());
+        }
+
+        if name == "CurrentTypeOf" {
+            self.expr_type(&args[0])?;
+            return Some("type".into());
+        }
+
         let source = self.expr_type(&args[0]);
         self.expr_type(&args[1]);
         let target = match &args[1].kind {
@@ -2831,12 +2855,12 @@ impl Checker {
 
     fn call_type(&mut self, name: &str, args: &[Expr], span: Span) -> Option<String> {
         match name {
-            "Output" | "TypeOf" => {
+            "Output" => {
                 if self.expect_count(name, args, 1, span) {
                     self.expr_type(&args[0]);
                 }
 
-                Some(if name == "Output" { "none" } else { "type" }.into())
+                Some("none".into())
             }
 
             "Input" => {
@@ -4216,13 +4240,52 @@ impl Interpreter {
         span: Span,
     ) -> EResult<Value> {
         let name = function.text.as_str();
-        if name != "Convert" && name != "IsConvertible" {
+        if !matches!(
+            name,
+            "Convert" | "IsConvertible" | "DeclaredTypeOf" | "CurrentTypeOf"
+        ) {
             return Err(Diagnostic::new(
                 function.span,
                 format!("Unknown function '{}' in module 'types'", name),
             ));
         }
-        Self::check_count(&format!("{}:{}", module.text, name), args.len(), 2, span)?;
+
+        let arity = if matches!(name, "DeclaredTypeOf" | "CurrentTypeOf") {
+            1
+        } else {
+            2
+        };
+        Self::check_count(
+            &format!("{}:{}", module.text, name),
+            args.len(),
+            arity,
+            span,
+        )?;
+
+        if name == "DeclaredTypeOf" {
+            let variable_name = match &args[0].kind {
+                ExprKind::Variable(variable_name) => variable_name,
+                _ => {
+                    return Err(Diagnostic::new(
+                        args[0].span,
+                        "DeclaredTypeOf() requires a variable",
+                    ));
+                }
+            };
+            let variable = self.lookup(variable_name).ok_or_else(|| {
+                Diagnostic::new(
+                    args[0].span,
+                    format!("Undefined variable '{}'", variable_name),
+                )
+            })?;
+            return Ok(Value::Type(variable.declared_type.clone()));
+        }
+
+        if name == "CurrentTypeOf" {
+            let value = self.evaluate(&args[0])?;
+            return Ok(Value::Type(value.type_name()));
+        }
+
         let source = self.evaluate(&args[0])?;
         let target = match &args[1].kind {
             ExprKind::Literal(Value::Type(target)) if simple_convert_target(target) => target,
@@ -4337,13 +4400,6 @@ impl Interpreter {
                 }
 
                 return Ok(Value::Str(line));
-            }
-
-            "TypeOf" => {
-                Self::check_count(name, args.len(), 1, span)?;
-
-                let value = self.evaluate(&args[0])?;
-                return Ok(Value::Type(value.type_name()));
             }
 
             "Includes" => {
@@ -5158,7 +5214,10 @@ types:Convert(123, ls<str>)"#
 
     #[test]
     fn type_target_must_be_literal() {
-        assert!(check_source("import \"types\" as types\ntypes:Convert(1, TypeOf(1))").is_err());
+        assert!(
+            check_source("import \"types\" as types\ntypes:Convert(1, types:CurrentTypeOf(1))")
+                .is_err()
+        );
         assert!(
             check_source("import \"types\" as types\ntypes:IsConvertible(1, ls<int>)").is_err()
         );
@@ -5461,6 +5520,34 @@ Output(Includes(items, ""))"#;
 #[cfg(test)]
 mod union_type_tests {
     use super::*;
+
+    #[test]
+    fn declared_and_current_type_of_are_available_in_types_module() {
+        let declared = r#"import "types" as types
+value int | str := 10
+types:DeclaredTypeOf(value)"#;
+        let initial = r#"import "types" as types
+value int | str := 10
+types:CurrentTypeOf(value)"#;
+        let updated = r#"import "types" as types
+value int | str := 10
+value = "Hi!"
+types:CurrentTypeOf(value)"#;
+
+        assert_eq!(
+            evaluate_union_source(declared),
+            Value::Type("int | str".into())
+        );
+        assert_eq!(evaluate_union_source(initial), Value::Type("int".into()));
+        assert_eq!(evaluate_union_source(updated), Value::Type("str".into()));
+    }
+
+    #[test]
+    fn declared_type_of_requires_a_variable() {
+        let source = r#"import "types" as types
+types:DeclaredTypeOf(10)"#;
+        assert!(check_source(source).is_err());
+    }
 
     #[test]
     fn union_types_parse_in_declarations_parameters_and_returns() {
