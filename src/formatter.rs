@@ -1,6 +1,6 @@
 //! EphoFMT: the canonical source formatter for Epholang.
 //!
-//! This first implementation preserves expression spelling and comments while
+//! This implementation preserves expression spelling and comments while
 //! normalizing block layout, indentation, line endings, and semicolon separators.
 
 /// Format Epholang source code using the official layout rules.
@@ -58,7 +58,10 @@ pub fn format(source: &str) -> Result<String, String> {
                 i += 1;
             }
             if !closed {
-                return Err(format!("Unclosed string starting at character {}", start + 1));
+                return Err(format!(
+                    "Unclosed string starting at character {}",
+                    start + 1
+                ));
             }
             line.extend(chars[start..i].iter());
             continue;
@@ -81,7 +84,10 @@ pub fn format(source: &str) -> Result<String, String> {
                 }
             }
             if depth != 0 {
-                return Err(format!("Unclosed block comment starting at character {}", start + 1));
+                return Err(format!(
+                    "Unclosed block comment starting at character {}",
+                    start + 1
+                ));
             }
             line.extend(chars[start..i].iter());
             continue;
@@ -93,9 +99,14 @@ pub fn format(source: &str) -> Result<String, String> {
                     i += 1;
                 }
                 if parens > 0 || brackets > 0 {
-                    if !line.ends_with(' ') { line.push(' '); }
+                    if !line.ends_with(' ') {
+                        line.push(' ');
+                    }
                 } else if line.trim().is_empty() {
-                    if previous_source_was_newline && !output.is_empty() && !output.ends_with("\n\n") {
+                    if previous_source_was_newline
+                        && !output.is_empty()
+                        && !output.ends_with("\n\n")
+                    {
                         output.push('\n');
                     }
                 } else {
@@ -105,9 +116,14 @@ pub fn format(source: &str) -> Result<String, String> {
             }
             '\n' => {
                 if parens > 0 || brackets > 0 {
-                    if !line.ends_with(' ') { line.push(' '); }
+                    if !line.ends_with(' ') {
+                        line.push(' ');
+                    }
                 } else if line.trim().is_empty() {
-                    if previous_source_was_newline && !output.is_empty() && !output.ends_with("\n\n") {
+                    if previous_source_was_newline
+                        && !output.is_empty()
+                        && !output.ends_with("\n\n")
+                    {
                         output.push('\n');
                     }
                 } else {
@@ -119,14 +135,30 @@ pub fn format(source: &str) -> Result<String, String> {
                 flush(&mut output, &mut line, indent);
                 previous_source_was_newline = false;
             }
-            '(' => { parens += 1; line.push(ch); }
-            ')' => { parens = parens.saturating_sub(1); line.push(ch); }
-            '[' => { brackets += 1; line.push(ch); }
-            ']' => { brackets = brackets.saturating_sub(1); line.push(ch); }
+            '(' => {
+                parens += 1;
+                line.push(ch);
+            }
+            ')' => {
+                parens = parens.saturating_sub(1);
+                line.push(ch);
+            }
+            '[' => {
+                brackets += 1;
+                line.push(ch);
+            }
+            ']' => {
+                brackets = brackets.saturating_sub(1);
+                line.push(ch);
+            }
             '{' => {
                 if starts_block_header(&line) {
-                    while line.ends_with(' ') || line.ends_with('\t') { line.pop(); }
-                    if !line.is_empty() { line.push(' '); }
+                    while line.ends_with(' ') || line.ends_with('\t') {
+                        line.pop();
+                    }
+                    if !line.is_empty() {
+                        line.push(' ');
+                    }
                     line.push('{');
                     flush(&mut output, &mut line, indent);
                     braces.push(true);
@@ -136,31 +168,35 @@ pub fn format(source: &str) -> Result<String, String> {
                     braces.push(false);
                 }
             }
-            '}' => {
-                match braces.pop() {
-                    Some(true) => {
-                        flush(&mut output, &mut line, indent);
-                        indent = indent.saturating_sub(1);
-                        line.push('}');
+            '}' => match braces.pop() {
+                Some(true) => {
+                    flush(&mut output, &mut line, indent);
+                    indent = indent.saturating_sub(1);
+                    line.push('}');
 
-                        let mut next = i + 1;
-                        while next < chars.len()
-                            && (chars[next] == ' ' || chars[next] == '\t'
-                                || chars[next] == '\r' || chars[next] == '\n')
-                        {
-                            next += 1;
-                        }
-                        if chars[next..].starts_with(&['o', 't', 'h', 'e', 'r', 'w', 'i', 's', 'e'])
-                            && chars.get(next + 8).is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '_')
-                        {
-                            line.push_str(" otherwise");
-                            i = next + 7;
-                        }
+                    let mut next = i + 1;
+                    while next < chars.len()
+                        && (chars[next] == ' '
+                            || chars[next] == '\t'
+                            || chars[next] == '\r'
+                            || chars[next] == '\n')
+                    {
+                        next += 1;
                     }
-                    Some(false) => line.push('}'),
-                    None => return Err(format!("Unmatched closing brace at character {}", i + 1)),
+                    if chars[next..].starts_with(&['o', 't', 'h', 'e', 'r', 'w', 'i', 's', 'e'])
+                        && chars
+                            .get(next + 9)
+                            .is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '_')
+                    {
+                        line.push_str(" otherwise");
+                        i = next + 8;
+                    }
                 }
-            }
+                Some(false) => line.push('}'),
+                None => {
+                    return Err(format!("Unmatched closing brace at character {}", i + 1));
+                }
+            },
             c if c.is_whitespace() => {
                 if !line.is_empty() && !line.ends_with(' ') && !line.ends_with('\t') {
                     line.push(' ');
@@ -168,19 +204,30 @@ pub fn format(source: &str) -> Result<String, String> {
             }
             _ => line.push(ch),
         }
+
         if !ch.is_whitespace() {
             previous_source_was_newline = false;
         }
         i += 1;
     }
 
-    if !braces.is_empty() { return Err("Unclosed brace".to_string()); }
-    if parens != 0 { return Err("Unclosed parenthesis".to_string()); }
-    if brackets != 0 { return Err("Unclosed square bracket".to_string()); }
+    if !braces.is_empty() {
+        return Err("Unclosed brace".to_string());
+    }
+    if parens != 0 {
+        return Err("Unclosed parenthesis".to_string());
+    }
+    if brackets != 0 {
+        return Err("Unclosed square bracket".to_string());
+    }
 
     flush(&mut output, &mut line, indent);
-    while output.ends_with("\n\n") { output.pop(); }
-    if !output.is_empty() && !output.ends_with('\n') { output.push('\n'); }
+    while output.ends_with("\n\n") {
+        output.pop();
+    }
+    if !output.is_empty() && !output.ends_with('\n') {
+        output.push('\n');
+    }
     Ok(output)
 }
 
@@ -190,8 +237,10 @@ mod tests {
 
     #[test]
     fn separates_semicolon_statements() {
-        assert_eq!(format("value str := \"hi\"; Output(value)").unwrap(),
-            "value str := \"hi\"\nOutput(value)\n");
+        assert_eq!(
+            format("value str := \"hi\"; Output(value)").unwrap(),
+            "value str := \"hi\"\nOutput(value)\n"
+        );
     }
 
     #[test]
@@ -202,14 +251,18 @@ mod tests {
     #[test]
     fn indents_blocks_with_tabs_and_joins_otherwise() {
         let source = "if ready {\nOutput(\"yes\")\n}\notherwise {\nOutput(\"no\")\n}";
-        assert_eq!(format(source).unwrap(),
-            "if ready {\n\tOutput(\"yes\")\n} otherwise {\n\tOutput(\"no\")\n}\n");
+        assert_eq!(
+            format(source).unwrap(),
+            "if ready {\n\tOutput(\"yes\")\n} otherwise {\n\tOutput(\"no\")\n}\n"
+        );
     }
 
     #[test]
     fn does_not_split_semicolons_inside_strings_or_comments() {
-        assert_eq!(format("Output(\"a;b\") /* x;y */").unwrap(),
-            "Output(\"a;b\") /* x;y */\n");
+        assert_eq!(
+            format("Output(\"a;b\") /* x;y */").unwrap(),
+            "Output(\"a;b\") /* x;y */\n"
+        );
     }
 
     #[test]
@@ -220,7 +273,9 @@ mod tests {
 
     #[test]
     fn preserves_list_literal_braces() {
-        assert_eq!(format("values ls<int> := list<int>{1, 2, 3}").unwrap(),
-            "values ls<int> := list<int>{1, 2, 3}\n");
+        assert_eq!(
+            format("values ls<int> := list<int>{1, 2, 3}").unwrap(),
+            "values ls<int> := list<int>{1, 2, 3}\n"
+        );
     }
 }
