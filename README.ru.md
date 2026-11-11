@@ -83,6 +83,8 @@ epholang run program.epho      # проверить и запустить
 epholang check program.epho    # только статическая проверка
 epholang tokens program.epho   # показать токены лексера
 epholang parse program.epho    # показать синтаксическое дерево
+epholang format program.epho   # форматировать код через EphoFMT
+epholang format --check program.epho # проверить форматирование без изменений
 ```
 
 Пример можно запустить через Cargo, не добавляя программу в `PATH`:
@@ -93,7 +95,7 @@ cargo run -- run examples/03_loops.epho
 
 ### VS Code
 
-Установите `epholang-language-0.2.0.vsix` через **Extensions → … → Install from VSIX...** или командой `code --install-extension epholang-language-0.2.0.vsix` из папки с файлом. Расширение добавляет подсветку синтаксиса и сниппеты, но не является компилятором или языковым сервером.
+Установите `epholang-language-0.2.0.vsix` через **Extensions → … → Install from VSIX...** или командой `code --install-extension epholang-language-0.2.0.vsix` из папки с файлом. Расширение добавляет подсветку синтаксиса, сниппеты и форматирование документов через EphoFMT. Форматирование при сохранении включено по умолчанию для файлов Epholang; вручную его можно запустить через **Shift + Alt + F**. Расширение вызывает установленный Epholang CLI. Если команда `epholang` недоступна через `PATH`, укажите путь к исполняемому файлу в настройке `epholang.executablePath`. Расширение не является компилятором или языковым сервером.
 
 ## Краткий обзор языка
 
