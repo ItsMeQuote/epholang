@@ -89,6 +89,8 @@ epholang run program.epho      # statically check, then run
 epholang check program.epho    # static checks only
 epholang tokens program.epho   # inspect lexer tokens
 epholang parse program.epho    # inspect the syntax tree
+epholang format program.epho   # format source with EphoFMT
+epholang format --check program.epho # check formatting without changes
 ```
 
 To try an example without adding the binary to `PATH`:
@@ -107,7 +109,7 @@ Alternatively, run the following command with the downloaded file in the current
 code --install-extension epholang-language-0.2.0.vsix
 ```
 
-The extension provides syntax highlighting and snippets. It is not a compiler or language server.
+The extension provides syntax highlighting, snippets, and EphoFMT document formatting. Formatting on save is enabled by default for Epholang files; **Shift + Alt + F** runs it manually. The extension invokes the installed Epholang CLI. If it is not available on `PATH`, set `epholang.executablePath` to its executable path. The extension is not a compiler or language server.
 
 ## Language at a glance
 

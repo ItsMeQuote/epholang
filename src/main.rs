@@ -1,3 +1,5 @@
+mod formatter;
+
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -4723,12 +4725,56 @@ fn execute(source: &str) -> Result<(), Failure> {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // Formatting is independent from parsing and static checking. This lets
+    // developers format source while it is still being written.
+    let format_check = args.len() == 4 && args[1] == "format" && args[2] == "--check";
+    let format_write = args.len() == 3 && args[1] == "format";
+
+    if format_check || format_write {
+        let path = if format_check { &args[3] } else { &args[2] };
+        let source = match fs::read_to_string(path) {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("Cannot read '{}': {}", path, error);
+                std::process::exit(1);
+            }
+        };
+
+        let formatted = match formatter::format(&source) {
+            Ok(formatted) => formatted,
+            Err(error) => {
+                eprintln!("EphoFMT error in '{}': {}", path, error);
+                std::process::exit(1);
+            }
+        };
+
+        if format_check {
+            if formatted == source {
+                println!("OK: '{}' is formatted", path);
+            } else {
+                eprintln!("Not formatted: '{}'", path);
+                std::process::exit(1);
+            }
+        } else {
+            if formatted != source {
+                if let Err(error) = fs::write(path, formatted) {
+                    eprintln!("Cannot write '{}': {}", path, error);
+                    std::process::exit(1);
+                }
+            }
+            println!("Formatted '{}'", path);
+        }
+        return;
+    }
+
     if args.len() != 3 {
         eprintln!("Usage:");
         eprintln!("  epholang tokens <file.epho>");
         eprintln!("  epholang parse <file.epho>");
         eprintln!("  epholang check <file.epho>");
         eprintln!("  epholang run <file.epho>");
+        eprintln!("  epholang format <file.epho>");
+        eprintln!("  epholang format --check <file.epho>");
         std::process::exit(1);
     }
 
@@ -4793,6 +4839,7 @@ fn main() {
         std::process::exit(1);
     }
 }
+
 #[cfg(test)]
 mod stage1_tests {
     use super::*;
