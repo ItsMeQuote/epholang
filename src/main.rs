@@ -2790,7 +2790,10 @@ impl Checker {
         span: Span,
     ) -> Option<String> {
         let name = function.text.as_str();
-        if !matches!(name, "Convert" | "IsConvertible" | "DeclaredTypeOf" | "CurrentTypeOf") {
+        if !matches!(
+            name,
+            "Convert" | "IsConvertible" | "DeclaredTypeOf" | "CurrentTypeOf"
+        ) {
             self.err(
                 function.span,
                 format!("Unknown function '{}' in module 'types'", name),
@@ -4237,7 +4240,10 @@ impl Interpreter {
         span: Span,
     ) -> EResult<Value> {
         let name = function.text.as_str();
-        if !matches!(name, "Convert" | "IsConvertible" | "DeclaredTypeOf" | "CurrentTypeOf") {
+        if !matches!(
+            name,
+            "Convert" | "IsConvertible" | "DeclaredTypeOf" | "CurrentTypeOf"
+        ) {
             return Err(Diagnostic::new(
                 function.span,
                 format!("Unknown function '{}' in module 'types'", name),
@@ -4249,7 +4255,12 @@ impl Interpreter {
         } else {
             2
         };
-        Self::check_count(&format!("{}:{}", module.text, name), args.len(), arity, span)?;
+        Self::check_count(
+            &format!("{}:{}", module.text, name),
+            args.len(),
+            arity,
+            span,
+        )?;
 
         if name == "DeclaredTypeOf" {
             let variable_name = match &args[0].kind {
@@ -5200,7 +5211,10 @@ types:Convert(123, ls<str>)"#
 
     #[test]
     fn type_target_must_be_literal() {
-        assert!(check_source("import \"types\" as types\ntypes:Convert(1, types:CurrentTypeOf(1))").is_err());
+        assert!(
+            check_source("import \"types\" as types\ntypes:Convert(1, types:CurrentTypeOf(1))")
+                .is_err()
+        );
         assert!(
             check_source("import \"types\" as types\ntypes:IsConvertible(1, ls<int>)").is_err()
         );
