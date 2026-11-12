@@ -26,7 +26,7 @@
 
 ## Why Epholang?
 
-<img src="images/epholang_hexer_question.png" align="right">
+<img src="images/epholang_hexer_question.png" align="right" alt="Hexer with a question mark">
 
 Epholang is designed around a few deliberate choices:
 
@@ -40,7 +40,7 @@ Epholang is a **tree-walking interpreter** with a static checking pass before ex
 
 ## A taste of Epholang
 
-<img src="images/epholang_hexer_laptop.png" align="right">
+<img src="images/epholang_hexer_laptop.png" align="right" alt="Hexer is holding a laptop">
 
 ```epholang
 import "math" as math
@@ -72,7 +72,7 @@ Find seven ready-to-run programs in [`examples/`](examples/) and the extended la
 
 ## Getting started
 
-<img src="images/epholang_hexer_arrow.png" align="right">
+<img src="images/epholang_hexer_arrow.png" align="right" alt="Hexer with an arrow">
 
 ### Download or build
 
@@ -180,7 +180,7 @@ See the [GitHub Wiki](https://github.com/ItsMeQuote/epholang/wiki) for function 
 
 ## Clear errors, early
 
-<img src="images/epholang_hexer_error.png" align="right">
+<img src="images/epholang_hexer_error.png" align="right" alt="Hexer with an error">
 
 Epholang distinguishes three error stages:
 
