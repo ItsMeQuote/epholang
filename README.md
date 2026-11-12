@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="images/epholang_logo.png" alt="Epholang logo">
+  <img src="images/epholang_logo_icon.png" alt="Epholang logo">
+  <img style="width: 5%; height: auto;">
+  <img src="images/epholang_hexer.png" alt="Hexer">
 </p>
 
 <div align="center">
@@ -24,6 +26,8 @@
 
 ## Why Epholang?
 
+<img src="images/epholang_hexer_question.png" align="right">
+
 Epholang is designed around a few deliberate choices:
 
 - **One way to do a thing.** Avoid needless overlap between features.
@@ -35,6 +39,8 @@ Epholang is designed around a few deliberate choices:
 Epholang is a **tree-walking interpreter** with a static checking pass before execution. It is an experimental language: incompatible changes are possible.
 
 ## A taste of Epholang
+
+<img src="images/epholang_hexer_laptop.png" align="right">
 
 ```epholang
 import "math" as math
@@ -65,6 +71,8 @@ Function names follow **PascalCase by convention**, while variables and module a
 Find seven ready-to-run programs in [`examples/`](examples/) and the extended language guide in the [GitHub Wiki](https://github.com/ItsMeQuote/epholang/wiki).
 
 ## Getting started
+
+<img src="images/epholang_hexer_arrow.png" align="right">
 
 ### Download or build
 
@@ -171,6 +179,8 @@ Output("Convertible: #{types:IsConvertible(\"42\", int)}\n")
 See the [GitHub Wiki](https://github.com/ItsMeQuote/epholang/wiki) for function arguments, edge cases, and more examples.
 
 ## Clear errors, early
+
+<img src="images/epholang_hexer_error.png" align="right">
 
 Epholang distinguishes three error stages:
 
