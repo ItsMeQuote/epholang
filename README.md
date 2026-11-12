@@ -1,6 +1,6 @@
 <p align="center">
   <img src="images/epholang_logo_icon.png" alt="Epholang logo">
-  <img style="width: 5%; height: auto;">
+  <img style="width: 3%; height: auto;">
   <img src="images/epholang_hexer.png" alt="Hexer">
 </p>
 
