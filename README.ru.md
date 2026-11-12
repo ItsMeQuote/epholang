@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="images/epholang_logo.png" alt="Логотип Epholang" width="auto">
+  <img src="images/epholang_logo_icon.png" alt="Логотип Epholang" width="auto">
+  <img style="width: 5%; height: auto;">
+  <img src="images/epholang_hexer.png" alt="Маскот Хексер">
 </p>
 
 <div align="center">
@@ -24,6 +26,8 @@
 
 ## Почему Epholang?
 
+<img src="images/epholang_hexer_question.png" align="right" align="right" alt="Хексер со знаком вопроса">
+
 В основе Epholang — несколько осознанных принципов:
 
 - **Минимум способов на одну задачу.** Без лишних пересекающихся возможностей.
@@ -35,6 +39,8 @@
 Сейчас Epholang — **интерпретатор с обходом синтаксического дерева и предварительной статической проверкой**. Язык экспериментальный: несовместимые изменения в следующих версиях возможны.
 
 ## Знакомство с Epholang
+
+<img src="images/epholang_hexer_laptop.png" align="right" align="right" alt="Хексер держит ноутбук">
 
 ```epholang
 import "math" as math
@@ -63,6 +69,8 @@ Output("Сумма = #{math:Sum(numbers)}\n")
 Семь готовых программ находятся в [`examples/`](examples/). Подробное руководство и справочник языка — в [GitHub Wiki](https://github.com/ItsMeQuote/epholang/wiki).
 
 ## Начало работы
+
+<img src="images/epholang_hexer_arrow.png" align="right" align="right" alt="Хексер со стрелкой">
 
 ### Скачать или собрать
 
@@ -151,6 +159,8 @@ Output("Можно преобразовать: #{types:IsConvertible(\"42\", int
 `math:RandomInterval(minimum, maximum)` возвращает `int` с **обеими включёнными границами**; функция не предназначена для криптографии. Для `types:Convert(value, targetType)` и `types:IsConvertible(value, targetType)` требуется литерал типа `int`, `flt`, `str` или `bool`. Описание аргументов и пограничных случаев — в [Wiki](https://github.com/ItsMeQuote/epholang/wiki).
 
 ## Ошибки, указывающие на проблему
+
+<img src="images/epholang_hexer_error.png" align="right" align="right" alt="Хексер с ошибкой">
 
 В Epholang три этапа проверки ошибок:
 
