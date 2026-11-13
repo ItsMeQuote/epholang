@@ -1,0 +1,45 @@
+---
+import release from "../data/release.json";
+import Layout from "../components/Layout.astro";
+import { slugs, labels, descriptions, type Lang } from "../data/site";
+import "../styles/global.css";
+import Home from "../components/Home.astro";
+import GettingStarted from "../components/GettingStarted.astro";
+import Docs from "../components/Docs.astro";
+import Examples from "../components/Examples.astro";
+import Download from "../components/Download.astro";
+import About from "../components/About.astro";
+export function getStaticPaths() {
+  return (["ru", "en"] as const).flatMap((lang) =>
+    slugs.map((slug) => ({
+      params: { route: lang + (slug ? "/" + slug : "") },
+      props: { lang, slug },
+    })),
+  );
+}
+const { lang, slug } = Astro.props as { lang: Lang; slug: string };
+const index = slugs.indexOf(slug as (typeof slugs)[number]);
+---
+
+<Layout
+  lang={lang}
+  slug={slug}
+  title={labels[lang][index]}
+  description={descriptions[lang][index]}
+>
+  <div class="container">
+    {slug === "" && <Home lang={lang} />}
+    {slug !== "" && (
+      <div class="page-head">
+        <span class="eyebrow">Epholang / {release.name}</span>
+        <h1>{labels[lang][index]}</h1>
+        <p class="lead">{descriptions[lang][index]}</p>
+      </div>
+    )}
+    {slug === "getting-started" && <GettingStarted lang={lang} />}
+    {slug === "docs" && <Docs lang={lang} />}
+    {slug === "examples" && <Examples lang={lang} />}
+    {slug === "download" && <Download lang={lang} />}
+    {slug === "about" && <About lang={lang} />}
+  </div>
+</Layout>
