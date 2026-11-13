@@ -1,0 +1,38 @@
+---
+import release from "../data/release.json";
+import Layout from "../components/Layout.astro";
+import "../styles/global.css";
+---
+
+<Layout
+  lang="en"
+  title="Choose your language / Выберите язык"
+  description="Explore Epholang in English or Russian. Выберите русский или английский язык."
+  root
+>
+  <div class="language-page">
+    <div class="hero-logo">
+      <img
+        src="/epholang/assets/epholang_logo_icon.png"
+        width="48"
+        height="58"
+        alt="Epholang"
+      />
+      <span class="version">{release.name}</span>
+    </div>
+    <h1>Explicit by design.</h1>
+    <p style="text-align:center">
+      Choose your language / <span lang="ru">Выберите язык</span>
+    </p>
+    <div class="language-choices">
+      <a href="/epholang/ru/" lang="ru" data-language="ru" data-choice="ru">
+        <strong>Русский</strong>
+        <span>Явные типы. Читаемый код. Строгая проверка.</span>
+      </a>
+      <a href="/epholang/en/" lang="en" data-language="en" data-choice="en">
+        <strong>English</strong>
+        <span>Explicit types. Readable code. Strict checking.</span>
+      </a>
+    </div>
+  </div>
+</Layout>

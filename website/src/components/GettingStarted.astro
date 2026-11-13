@@ -1,0 +1,147 @@
+---
+import { code, buildCode, outputs } from "../data/programs";
+import Code from "./Code.astro";
+import { Download } from "@lucide/astro";
+import { url, t, type Lang } from "../data/site";
+const { lang } = Astro.props as { lang: Lang };
+const tr = (ru: string, en: string) => t(lang, ru, en);
+---
+
+<div class="guide-layout">
+  <aside class="toc" aria-label={tr("На этой странице", "On this page")}>
+    {[
+      ["get", tr("1. Получить", "1. Get Epholang")],
+      ["write", tr("2. Написать", "2. Write code")],
+      ["run", tr("3. Запустить", "3. Run it")],
+      ["understand", tr("4. Разобраться", "4. Understand")],
+      ["next", tr("5. Продолжить", "5. Go further")],
+    ].map(([id, label]) => (
+      <a href={"#" + id}>{label}</a>
+    ))}
+  </aside>
+  <article class="content">
+    <h2 id="get">{tr("1. Получите Epholang", "1. Get Epholang")}</h2>
+    <p>
+      {tr(
+        "Для Windows доступен готовый epholang.exe. Rust для его запуска не нужен. На Linux и macOS интерпретатор собирается из исходников.",
+        "Windows has a prebuilt epholang.exe; running it does not require Rust. On Linux and macOS, build the interpreter from source.",
+      )}
+    </p>
+    <a class="button" href={url(lang, "download")}>
+      <Download size={17} aria-hidden="true" />
+      {tr("Выбрать загрузку", "Choose a download")}
+    </a>
+    <h3>{tr("Сборка из исходников", "Build from source")}</h3>
+    <p>
+      {tr(
+        "Потребуются Git, Cargo и Rust 1.85 или новее. Выбор тега фиксирует версию исходников.",
+        "You need Git, Cargo and Rust 1.85 or newer. Checking out the tag selects the release source.",
+      )}
+    </p>
+    <Code lang={lang} code={buildCode} name="Terminal" syntax={false} />
+    <p>
+      {tr(
+        "Результат: target/release/epholang, а в Windows — target\\release\\epholang.exe. Далее команды предполагают, что каталог программы добавлен в PATH.",
+        "The result is target/release/epholang, or target\\release\\epholang.exe on Windows. The following commands assume its directory is on PATH.",
+      )}
+    </p>
+    <h2 id="write">
+      {tr("2. Создайте первую программу", "2. Write your first program")}
+    </h2>
+    <p>
+      {tr(
+        "Создайте текстовый файл hello.epho и сохраните его в UTF-8. Расширение исходников Epholang — .epho.",
+        "Create a UTF-8 text file named hello.epho. Epholang source files use the .epho extension.",
+      )}
+    </p>
+    <Code
+      lang={lang}
+      code={code("01_hello.epho")}
+      name="hello.epho"
+      output={outputs["01_hello.epho"]}
+    />
+    <h2 id="run">{tr("3. Проверьте и запустите", "3. Check and run")}</h2>
+    <p>
+      {tr(
+        "Откройте терминал в каталоге с файлом. check проверяет программу без выполнения; run сначала проверяет её, затем выполняет.",
+        "Open a terminal in the file’s directory. check validates without executing; run checks first, then executes.",
+      )}
+    </p>
+    <Code
+      lang={lang}
+      code={"epholang check hello.epho\nepholang run hello.epho"}
+      name="PATH"
+      syntax={false}
+    />
+    <p>
+      {tr(
+        "Без PATH используйте полный или относительный путь к интерпретатору.",
+        "Without PATH, use the full or relative path to the interpreter.",
+      )}
+    </p>
+    <Code
+      lang={lang}
+      code={".\\epholang.exe run hello.epho"}
+      name="Windows · PowerShell"
+      syntax={false}
+    />
+    <Code
+      lang={lang}
+      code={"./target/release/epholang run hello.epho"}
+      name="Linux / macOS · repository directory"
+      syntax={false}
+    />
+    <h2 id="understand">
+      {tr("4. Разберите правила", "4. Understand the rules")}
+    </h2>
+    <p>
+      {tr(
+        "Output не добавляет перевод строки: укажите \\n. Комментарии заключаются в /* ... */ и могут быть вложенными. Однострочных комментариев нет.",
+        "Output does not append a newline: include \\n. Comments use /* ... */ and may be nested. Single-line comments are not supported.",
+      )}
+    </p>
+    <Code
+      lang={lang}
+      code={code("02_functions.epho")}
+      name="02_functions.epho"
+      output={outputs["02_functions.epho"]}
+    />
+    <p>
+      {tr(
+        "function объявляет функцию; value int задаёт тип параметра. Тип результата стоит после скобок и повторяется в return int. PascalCase для пользовательских функций — соглашение, а не требование.",
+        "function declares a function; value int gives the parameter type. The result type follows the parentheses and is repeated in return int. PascalCase for user functions is a convention, not a requirement.",
+      )}
+    </p>
+    <h3>{tr("Ошибки — часть знакомства", "Errors are part of learning")}</h3>
+    <p>
+      {tr(
+        "Неиспользуемые переменные, несовместимые типы и пропущенный return считаются статическими ошибками. Программа с такими ошибками не запускается. Некоторые ошибки, например выход за границы списка, зависят от значений и обнаруживаются при выполнении.",
+        "Unused variables, incompatible types and missing returns are static errors and prevent execution. Other errors, such as invalid list indices, depend on values and are detected at runtime.",
+      )}
+    </p>
+    <div class="notice">
+      <p>
+        {tr(
+          "int и flt нельзя неявно смешивать. Первый индекс списка — 1. Для int / int частное должно точно представляться как flt: 5 / 2 допустимо, 1 / 3 вызывает ошибку выполнения.",
+          "int and flt cannot be mixed implicitly. The first list index is 1. For int / int, the quotient must be exactly representable as flt: 5 / 2 works, while 1 / 3 raises a runtime error.",
+        )}
+      </p>
+    </div>
+    <h2 id="next">{tr("5. Продолжите изучение", "5. Keep exploring")}</h2>
+    <p>
+      <a href={url(lang, "examples")}>
+        {tr("Семь примеров из репозитория", "Seven repository examples")}
+      </a>{" "}
+      ·{" "}
+      <a href={url(lang, "docs")}>
+        {tr("Руководства и Wiki", "Guides and Wiki")}
+      </a>
+    </p>
+    <p>
+      {tr(
+        "Расширение VS Code добавляет подсветку и сниппеты. Это не языковой сервер или компилятор.",
+        "The VS Code extension adds highlighting and snippets. It is not a language server or compiler.",
+      )}
+    </p>
+  </article>
+</div>

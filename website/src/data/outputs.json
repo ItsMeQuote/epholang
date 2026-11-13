@@ -1,0 +1,8 @@
+{
+  "01_hello.epho": "Hello, Epholang!\n",
+  "02_functions.epho": "Square of 7: 49\n",
+  "03_loops.epho": "1\n2\n3\nfirst\nsecond\n",
+  "04_lists.epho": "list{10, 15, 20, 30}\nCount: 4\nContains 15: true\n",
+  "05_strings.epho": "HELLO EPHOLANG\nlist{a, b, c}\n",
+  "07_types.epho": "Converted: 42\n"
+}

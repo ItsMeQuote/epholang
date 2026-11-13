@@ -1,0 +1,70 @@
+---
+import { code } from "../data/programs";
+import Code from "./Code.astro";
+import { ArrowUpRight } from "@lucide/astro";
+import { repo, t, type Lang } from "../data/site";
+const { lang } = Astro.props as { lang: Lang };
+const tr = (ru: string, en: string) => t(lang, ru, en);
+const wiki = [
+  ["Introduction", "Введение", "Introduction"],
+  ["Installation", "Установка", "Installation"],
+  ["Hello-World", "Первая программа", "Hello World"],
+  ["Syntax-Overview", "Обзор синтаксиса", "Syntax overview"],
+  ["Variables-and-Types", "Переменные и типы", "Variables and types"],
+  ["Project-Structure", "Структура проекта", "Project structure"],
+];
+---
+
+<article class="content">
+  <div class="notice">
+    <p>
+      {tr(
+        "Подробная документация ведётся в GitHub Wiki на английском языке. Ниже — проверенные ссылки на существующие страницы. Некоторые разделы оглавления Wiki пока не заполнены.",
+        "Detailed documentation lives in the English GitHub Wiki. These links point to existing pages; some topics in the Wiki navigation are still unwritten.",
+      )}
+    </p>
+  </div>
+  <h2>{tr("Руководства и справочник", "Guides and reference")}</h2>
+  <ul class="link-list">
+    {wiki.map(([s, ru, en]) => (
+      <li>
+        <a href={repo + "/wiki/" + s}>
+          {tr(ru, en)}
+          <ArrowUpRight size={15} aria-hidden="true" />
+        </a>
+        <p>GitHub Wiki · English</p>
+      </li>
+    ))}
+  </ul>
+  <h2>{tr("Коротко о синтаксисе", "Syntax essentials")}</h2>
+  <p>
+    {tr(
+      "Объявление переменной: имя, тип, := и значение. Присваивание использует =. Импорты стоят в начале файла; доступны только strings, math и types.",
+      "Declare a variable with a name, type, := and value. Assignment uses =. Imports come first; only strings, math and types are available.",
+    )}
+  </p>
+  <Code lang={lang} code={code("07_types.epho")} name="07_types.epho" />
+  <h2>{tr("Инструменты командной строки", "Command-line tools")}</h2>
+  <Code
+    lang={lang}
+    code={
+      "epholang run program.epho\nepholang check program.epho\nepholang tokens program.epho\nepholang parse program.epho"
+    }
+    name="CLI"
+    syntax={false}
+  />
+  <p>
+    {tr(
+      "run — проверка и выполнение; check — только статическая проверка; tokens — токены лексера; parse — синтаксическое дерево.",
+      "run checks and executes; check performs static checks only; tokens shows lexer tokens; parse shows the syntax tree.",
+    )}
+  </p>
+  <p>
+    <a href={repo + "/blob/main/src/main.rs"}>
+      {tr(
+        "Проверить поведение по исходникам интерпретатора",
+        "Inspect the interpreter source",
+      )}
+    </a>
+  </p>
+</article>

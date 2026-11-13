@@ -1,0 +1,74 @@
+---
+import { repo, t, limits, type Lang } from "../data/site";
+const { lang } = Astro.props as { lang: Lang };
+const tr = (ru: string, en: string) => t(lang, ru, en);
+---
+
+<article class="content">
+  <h2>{tr("Явность важнее краткости", "Explicit over short")}</h2>
+  <p>
+    {tr(
+      "Epholang исследует подход к программированию с явными типами, небольшим числом пересекающихся механизмов и строгими правилами. Язык сознательно отказывается от классов, наследования и методов.",
+      "Epholang explores programming with explicit types, few overlapping mechanisms and strict rules. The language deliberately omits classes, inheritance and methods.",
+    )}
+  </p>
+  <h2>{tr("Текущая реализация", "Current implementation")}</h2>
+  <p>
+    {tr(
+      "Интерпретатор написан на Rust и обходит синтаксическое дерево после статической проверки. Расширение VS Code обеспечивает подсветку и сниппеты.",
+      "The Rust interpreter walks the syntax tree after static checking. The VS Code extension provides highlighting and snippets.",
+    )}
+  </p>
+  <div class="notice">
+    <p>{limits[lang]}</p>
+  </div>
+  <h2>{tr("Авторство и лицензия", "Authorship and license")}</h2>
+  <p>
+    {tr(
+      "Дизайн языка, его синтаксис, семантика и правила разработаны ItsMeQuote. Реализация создавалась с помощью ИИ. Исходный код распространяется по лицензии MIT.",
+      "The language design, syntax, semantics and rules are by ItsMeQuote. The implementation was developed with AI assistance. Source code is distributed under the MIT license.",
+    )}
+  </p>
+  <h2>{tr("Участие в проекте", "Take part")}</h2>
+  <ul class="link-list">
+    <li>
+      <a href={repo}>{tr("Исходный код", "Source code")}</a>
+    </li>
+    <li>
+      <a href={repo + "/issues"}>
+        {tr(
+          "Сообщить об ошибке или предложить улучшение",
+          "Report a bug or suggest an improvement",
+        )}
+      </a>
+    </li>
+    <li>
+      <a href={repo + "/blob/main/CONTRIBUTING.md"}>
+        {tr("Правила участия (English)", "Contributing guidelines")}
+      </a>
+    </li>
+    <li>
+      <a
+        href={
+          repo +
+          "/blob/main/" +
+          (lang === "ru" ? "ROADMAP.ru.md" : "ROADMAP.md")
+        }
+      >
+        {tr("Направления развития", "Possible future directions")}
+      </a>
+      <p>
+        {tr(
+          "Без обещаний сроков: приоритеты могут меняться.",
+          "No promised dates: priorities may change.",
+        )}
+      </p>
+    </li>
+    <li>
+      <a href="https://t.me/epholang">
+        {tr("Сообщество в Telegram", "Telegram community")}
+      </a>
+      <p>{tr("Обсуждения на русском языке.", "Discussions in Russian.")}</p>
+    </li>
+  </ul>
+</article>

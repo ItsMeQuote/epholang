@@ -1,0 +1,31 @@
+{
+  "name": "epholang-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --host 0.0.0.0",
+    "build": "astro build",
+    "preview": "astro preview --host 0.0.0.0",
+    "check": "astro check && node scripts/check.mjs && node --test tests/highlighting.test.mjs",
+    "test": "playwright test",
+    "release:update": "node scripts/update-release.mjs",
+    "prebuild": "node scripts/prepare-assets.mjs",
+    "predev": "node scripts/prepare-assets.mjs",
+    "check:dist": "node scripts/check-built-site.mjs",
+    "examples:check": "node scripts/verify-examples.mjs"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.6.0",
+    "@lucide/astro": "^1.72.0",
+    "astro": "^5.16.0",
+    "shiki": "^3.15.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.5",
+    "@axe-core/playwright": "^4.11.0",
+    "@fontsource/inter": "^5.2.0",
+    "@fontsource/jetbrains-mono": "^5.2.0",
+    "@playwright/test": "^1.56.0",
+    "typescript": "^5.9.0"
+  }
+}

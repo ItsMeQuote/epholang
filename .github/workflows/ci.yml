@@ -4,7 +4,13 @@ on:
   push:
     branches:
       - "**"
+    paths-ignore:
+      - "website/**"
+      - ".github/workflows/website.yml"
   pull_request:
+    paths-ignore:
+      - "website/**"
+      - ".github/workflows/website.yml"
   workflow_dispatch:
 
 permissions:
