@@ -4,6 +4,14 @@
 
 All notable changes to Epholang are recorded here.
 
+## Unreleased
+
+- Block headers use a colon followed by one tab per nesting level. Conditions use `else if` and `else`.
+- Variable and parameter types precede their names. Function headers use `->` before the result type. Return statements still carry an explicit type.
+- Strings accept ordinary quotes and nested expressions in single-line interpolation.
+- User-defined functions must be declared before calls. Direct and indirect recursion are static errors. All declared names require a reference, including names beginning with `_`.
+- EphoFMT and VS Code support the indentation syntax. EphoFMT validates syntax and adds trailing commas to multiline lists.
+
 ## 0.2.0 alpha
 
 ### Changed (breaking)

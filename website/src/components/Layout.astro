@@ -1,0 +1,148 @@
+---
+import { Menu, ArrowUpRight } from "@lucide/astro";
+import { base, repo, slugs, labels, url, t, type Lang } from "../data/site";
+interface Props {
+  lang: Lang;
+  title: string;
+  description: string;
+  slug?: string;
+  root?: boolean;
+  noindex?: boolean;
+}
+const { lang, title, description, slug = "", root = false, noindex = false } = Astro.props;
+const other = lang === "ru" ? "en" : "ru";
+const canonical = new URL(noindex ? Astro.url.pathname : root ? base : url(lang, slug), Astro.site).href;
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>{title} · Epholang</title>
+    <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex"/>}
+    <link rel="canonical" href={canonical} />
+    <link
+      rel="alternate"
+      hreflang="ru"
+      href={new URL(url("ru", slug), Astro.site).href}
+    />
+    <link
+      rel="alternate"
+      hreflang="en"
+      href={new URL(url("en", slug), Astro.site).href}
+    />
+    <link
+      rel="alternate"
+      hreflang="x-default"
+      href={new URL(base, Astro.site).href}
+    />
+    <meta property="og:title" content={title + " · Epholang"} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={lang === "ru" ? "ru_RU" : "en_US"} />
+    <meta
+      property="og:image"
+      content={new URL(base + "assets/epholang_logo.png", Astro.site).href}
+    />
+    <meta property="og:image:alt" content="Epholang" />
+    <meta name="twitter:card" content="summary" />
+    <link
+      rel="icon"
+      type="image/png"
+      href={base + "assets/epholang_logo_icon.png"}
+    />
+    <meta name="theme-color" content="#141716" />
+  </head>
+  <body data-root={root ? "true" : undefined}>
+    <a class="skip" href="#main">
+      {t(lang, "К содержимому", "Skip to content")}
+    </a>
+    <header>
+      <div class="header-inner">
+        <a class="brand" href={url(lang)}>
+          <img
+            src={base + "assets/epholang_logo_icon.png"}
+            width="27"
+            height="33"
+            alt=""
+          />
+          <span>Epholang</span>
+        </a>
+        <button
+          class="menu-toggle"
+          aria-expanded="false"
+          aria-controls="navigation"
+          aria-label={t(lang, "Меню навигации", "Navigation menu")}
+        >
+          <Menu size={22} aria-hidden="true" />
+        </button>
+        <nav
+          id="navigation"
+          aria-label={t(lang, "Главная навигация", "Main navigation")}
+        >
+          {slugs.slice(1).map((s, i) => (
+            <a
+              href={url(lang, s)}
+              aria-current={!root && s === slug ? "page" : undefined}
+            >
+              {labels[lang][i + 1]}
+            </a>
+          ))}
+          <a
+            class="language"
+            href={url(other, slug)}
+            data-language={other}
+            lang={other}
+            aria-label={other === "ru" ? "Русская версия" : "English version"}
+          >
+            {other === "ru" ? "RU" : "EN"}
+          </a>
+          <a class="github" href={repo}>
+            GitHub
+            <ArrowUpRight size={14} aria-hidden="true" />
+          </a>
+        </nav>
+      </div>
+    </header>
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <footer>
+      <div class="footer-inner">
+        <div>
+          <a class="brand" href={url(lang)}>
+            Epholang<span class="version">Alpha</span>
+          </a>
+          <p>
+            {t(
+              lang,
+              "Явность. Читаемость. Строгая проверка.",
+              "Explicitness. Readability. Strict checking.",
+            )}
+          </p>
+        </div>
+        <div class="footer-links">
+          <a href={repo}>GitHub</a>
+          <a href={repo + "/wiki"}>Wiki (English)</a>
+          <a href={repo + "/blob/main/LICENSE"}>MIT License</a>
+          <a href={repo + "/issues"}>
+            {t(lang, "Сообщить об ошибке", "Report an issue")}
+          </a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        {t(
+          lang,
+          "Дизайн языка — ItsMeQuote. Реализация с помощью ИИ.",
+          "Language design by ItsMeQuote. Implemented with AI assistance.",
+        )}
+      </div>
+    </footer>
+    <script>
+      import "../scripts.ts";
+    </script>
+  </body>
+</html>

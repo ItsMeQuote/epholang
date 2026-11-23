@@ -1,5 +1,4 @@
-function Square(value int) int {
-    return int value * value
-}
+function Square(int value) -> int:
+	return int value * value
 
 Output("Square of 7: #{Square(7)}\n")

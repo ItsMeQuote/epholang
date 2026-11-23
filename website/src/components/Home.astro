@@ -1,0 +1,174 @@
+---
+import { code, outputs } from "../data/programs";
+import Code from "./Code.astro";
+import { ArrowRight, ArrowUpRight } from "@lucide/astro";
+import { base, repo, url, t, features, limits, type Lang } from "../data/site";
+import release from "../data/release.json";
+const { lang } = Astro.props as { lang: Lang };
+const tr = (ru: string, en: string) => t(lang, ru, en);
+---
+
+<section class="hero">
+  <div>
+    <div class="hero-logo">
+      <img
+        src={base + "assets/epholang_logo_icon.png"}
+        alt={tr("Логотип Epholang", "Epholang logo")}
+        width="40"
+        height="48"
+      />
+      <span class="version">{release.name}</span>
+    </div>
+    <span class="eyebrow">
+      {tr(
+        "Экспериментальный язык программирования",
+        "An experimental programming language",
+      )}
+    </span>
+    <h1>
+      {tr("Явные типы.", "Explicit types.")}
+      <br />
+      {tr("Читаемый код.", "Readable code.")}
+      <br />
+      {tr("Строгая проверка.", "Strict checking.")}
+    </h1>
+    <p class="lead">
+      {tr(
+        "Epholang делает правила видимыми: от объявления переменной до возвращаемого значения. Написан на Rust, проверяет программу перед выполнением.",
+        "Epholang makes its rules visible, from a variable declaration to a return value. Implemented in Rust, it checks your program before execution.",
+      )}
+    </p>
+    <div class="actions">
+      <a class="button" href={url(lang, "getting-started")}>
+        {tr("Начать работу", "Get started")}
+        <ArrowRight size={17} aria-hidden="true" />
+      </a>
+      <a class="button secondary" href={url(lang, "docs")}>
+        {tr("Документация", "Documentation")}
+      </a>
+    </div>
+    <p class="small-note">
+      {tr(
+        "Alpha: язык развивается, правила могут меняться.",
+        "Alpha: the language is evolving and its rules may change.",
+      )}
+    </p>
+  </div>
+  <div>
+    <div data-tabs>
+      <div class="tab-list" aria-label={tr("Примеры кода", "Code examples")}>
+        <button hidden id="tab-square" data-tab>
+          {tr("Квадраты", "Squares")}
+        </button>
+        <button hidden id="tab-hello" data-tab>
+          Hello
+        </button>
+        <button hidden id="tab-types" data-tab>
+          {tr("Типы", "Types")}
+        </button>
+      </div>
+      <div id="panel-square" data-panel>
+        <Code
+          code={code("02_functions.epho")}
+          name="02_functions.epho"
+          lang={lang}
+          output={outputs["02_functions.epho"]}
+        />
+      </div>
+      <div id="panel-hello" data-panel>
+        <Code
+          code={code("01_hello.epho")}
+          name="01_hello.epho"
+          lang={lang}
+          output={outputs["01_hello.epho"]}
+        />
+      </div>
+      <div id="panel-types" data-panel>
+        <Code
+          code={code("07_types.epho")}
+          name="07_types.epho"
+          lang={lang}
+          output={outputs["07_types.epho"]}
+        />
+      </div>
+    </div>
+    <p class="small-note">
+      {tr(
+        "Настоящий синтаксис Epholang. Демонстрация без выполнения в браузере.",
+        "Real Epholang syntax. A demonstration without in-browser execution.",
+      )}
+    </p>
+  </div>
+</section>
+<section class="section">
+  <div class="section-heading">
+    <div>
+      <span class="eyebrow">
+        {tr("Осознанные правила", "Deliberate rules")}
+      </span>
+      <h2>
+        {tr(
+          "Меньше неявного. Больше ясности.",
+          "Less implicit. More explicit.",
+        )}
+      </h2>
+    </div>
+  </div>
+  <div class="feature-grid">
+    {features.map((f, i) => (
+      <article class="feature">
+        <span class="number">0{i + 1}</span>
+        <h3>{lang === "ru" ? f[0] : f[1]}</h3>
+        <p>{lang === "ru" ? f[2] : f[3]}</p>
+        <code>{f[4]}</code>
+      </article>
+    ))}
+  </div>
+</section>
+<section class="section mascot-section">
+  <div>
+    <span class="eyebrow">
+      {tr("От строки к программе", "From a line to a program")}
+    </span>
+    <h2>{tr("Начните с малого.", "Start with something small.")}</h2>
+    <p class="lead">
+      {tr(
+        "Получите интерпретатор, создайте первый .epho-файл и разберите его шаг за шагом. Хексер уже готов к работе.",
+        "Get the interpreter, create your first .epho file and explore it step by step. Hexer is ready to join you.",
+      )}
+    </p>
+    <a class="button secondary" href={url(lang, "getting-started")}>
+      {tr("Первая программа", "Your first program")}
+      <ArrowRight size={17} aria-hidden="true" />
+    </a>
+  </div>
+  <img
+    src={base + "assets/epholang_hexer_laptop.png"}
+    alt={tr("Хексер с ноутбуком", "Hexer holding a laptop")}
+    width="332"
+    height="252"
+    loading="lazy"
+  />
+</section>
+<section class="section">
+  <span class="eyebrow">{tr("Статус проекта", "Project status")}</span>
+  <h2>
+    {tr(
+      "Эксперимент, открытый для изучения.",
+      "An experiment, open to exploration.",
+    )}
+  </h2>
+  <div class="notice">
+    <p>{limits[lang]}</p>
+  </div>
+  <div class="actions">
+    <a class="button" href={url(lang, "examples")}>
+      {tr("Изучить примеры", "Explore examples")}
+      <ArrowRight size={17} aria-hidden="true" />
+    </a>
+    <a href={repo}>
+      GitHub
+      <ArrowUpRight size={15} aria-hidden="true" />
+    </a>
+  </div>
+</section>

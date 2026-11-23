@@ -1,0 +1,84 @@
+---
+import { codeToHtml } from "shiki";
+import { readFileSync } from "node:fs";
+import { Copy, Check } from "@lucide/astro";
+import { t, type Lang } from "../data/site";
+interface Props {
+  code: string;
+  name?: string;
+  lang: Lang;
+  syntax?: boolean;
+  output?: string;
+}
+const { code, name = "Epholang", lang, syntax = true, output } = Astro.props;
+const grammar = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../../editors/vscode/syntaxes/epholang.tmLanguage.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+const theme = {
+  name: "epho",
+  type: "dark" as const,
+  colors: { "editor.background": "#191d1c", "editor.foreground": "#e4ebe7" },
+  tokenColors: [
+    { scope: ["keyword", "storage"], settings: { foreground: "#B5E61D" } },
+    { scope: ["string"], settings: { foreground: "#a3d8b3" } },
+    {
+      scope: ["comment"],
+      settings: { foreground: "#97a59e", fontStyle: "italic" },
+    },
+    {
+      scope: ["entity.name.function", "support.function"],
+      settings: { foreground: "#63e89b" },
+    },
+    { scope: ["constant"], settings: { foreground: "#e1ebbf" } },
+    {
+      scope: ["invalid"],
+      settings: { foreground: "#ffaaaa", fontStyle: "underline" },
+    },
+  ],
+};
+const html = syntax
+  ? await codeToHtml(code, { lang: { ...grammar, name: "epholang" }, theme })
+  : null;
+---
+
+<div class="code-block">
+  <div class="code-bar">
+    <span>{name}</span>
+    <button
+      hidden
+      class="copy"
+      type="button"
+      aria-label={t(lang, "Копировать код", "Copy code")}
+      data-success={t(lang, "Скопировано", "Copied")}
+      data-failure={t(
+        lang,
+        "Выделите и скопируйте код вручную",
+        "Select and copy the code manually",
+      )}
+    >
+      <Copy size={16} aria-hidden="true" />
+      <Check class="copied-icon" size={16} aria-hidden="true" />
+      <span>{t(lang, "Копировать", "Copy")}</span>
+    </button>
+  </div>
+  {html ? (
+    <div class="source" set:html={html} />
+  ) : (
+    <div class="source">
+      <pre><code>{code}</code></pre>
+    </div>
+  )}
+  {output !== undefined && (
+    <div class="output">
+      <span>{t(lang, "Проверенный вывод", "Verified output")}</span>
+      <pre>{output}</pre>
+    </div>
+  )}
+  <span class="copy-status sr-only" role="status" aria-live="polite"></span>
+</div>

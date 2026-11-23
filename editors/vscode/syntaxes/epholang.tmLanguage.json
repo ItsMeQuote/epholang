@@ -16,6 +16,9 @@
           "include": "#strings"
         },
         {
+          "include": "#list-literal"
+        },
+        {
           "include": "#tokens"
         }
       ]
@@ -71,44 +74,33 @@
     "interpolation-code": {
       "patterns": [
         {
-          "include": "#comments"
+          "include": "#inline-comments"
         },
         {
-          "include": "#interpolation-string"
+          "include": "#strings"
         },
         {
-          "include": "#interpolation-braces"
+          "include": "#inline-list-literal"
         },
         {
           "include": "#tokens"
         }
       ]
     },
-    "interpolation-string": {
-      "name": "string.quoted.double.epholang",
-      "begin": "\\\\\"",
-      "end": "\\\\\"|$",
-      "patterns": [
-        {
-          "include": "#escapes"
-        },
-        {
-          "include": "#interpolation"
-        }
-      ]
-    },
-    "interpolation-braces": {
-      "name": "meta.braces.epholang",
-      "begin": "\\{",
-      "end": "\\}|$",
-      "patterns": [
-        {
-          "include": "#interpolation-code"
-        }
-      ]
-    },
     "tokens": {
       "patterns": [
+        {
+          "name": "punctuation.separator.return-type.epholang",
+          "match": "->"
+        },
+        {
+          "name": "punctuation.section.block.epholang",
+          "match": ":(?=[\\t ]*(?:/\\*|$))"
+        },
+        {
+          "name": "invalid.illegal.brace.epholang",
+          "match": "[{}]"
+        },
         {
           "name": "invalid.illegal.operator.epholang",
           "match": "<=|>="
@@ -154,7 +146,7 @@
         },
         {
           "name": "keyword.control.epholang",
-          "match": "\\b(?:if|otherwise|loop|in|return|import|break|skip)\\b"
+          "match": "\\b(?:if|else|loop|in|return|import|break|skip)\\b"
         },
         {
           "name": "storage.type.function.epholang",
@@ -170,7 +162,7 @@
         },
         {
           "name": "support.function.builtin.epholang",
-          "match": "\\b(?:Output|Input|Includes|Length|Insert|Remove|TypeOf)(?=\\s*\\()"
+          "match": "\\b(?:Output|Input|Includes|Length|Insert|Remove)(?=\\s*\\()"
         },
         {
           "name": "entity.name.function.call.epholang",
@@ -186,7 +178,7 @@
         },
         {
           "name": "keyword.operator.epholang",
-          "match": ":=|==|!=|&&|\\|\\||[+*/%^=<>!\\-]"
+          "match": ":=|==|!=|&&|\\|\\||[+*/%^=<>!\\-|]"
         },
         {
           "name": "variable.other.readwrite.epholang",
@@ -194,7 +186,145 @@
         },
         {
           "name": "punctuation.epholang",
-          "match": "[()\\[\\]{},;]"
+          "match": "[()\\[\\],;]"
+        }
+      ]
+    },
+    "inline-comments": {
+      "name": "comment.block.epholang",
+      "begin": "/\\*",
+      "end": "\\*/|$",
+      "patterns": [
+        {
+          "include": "#inline-comments"
+        }
+      ]
+    },
+    "list-literal": {
+      "name": "meta.list.literal.epholang",
+      "begin": "\\b(list)(?=[\\t ]*<)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.epholang"
+        }
+      },
+      "end": "(?<=\\})",
+      "patterns": [
+        {
+          "include": "#list-type"
+        },
+        {
+          "include": "#list-body"
+        },
+        {
+          "include": "#comments"
+        }
+      ]
+    },
+    "list-type": {
+      "name": "meta.list.type.epholang",
+      "begin": "<",
+      "end": ">",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.type.begin.epholang"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.type.end.epholang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#tokens"
+        }
+      ]
+    },
+    "list-body": {
+      "name": "meta.list.elements.epholang",
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.list.begin.epholang"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.list.end.epholang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#code"
+        }
+      ]
+    },
+    "inline-list-literal": {
+      "name": "meta.list.literal.epholang",
+      "begin": "\\b(list)(?=[\\t ]*<)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.epholang"
+        }
+      },
+      "end": "(?<=\\})|$",
+      "patterns": [
+        {
+          "include": "#inline-list-type"
+        },
+        {
+          "include": "#inline-list-body"
+        },
+        {
+          "include": "#inline-comments"
+        }
+      ]
+    },
+    "inline-list-type": {
+      "name": "meta.list.type.epholang",
+      "begin": "<",
+      "end": ">|$",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.type.begin.epholang"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.type.end.epholang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#inline-comments"
+        },
+        {
+          "include": "#tokens"
+        }
+      ]
+    },
+    "inline-list-body": {
+      "name": "meta.list.elements.epholang",
+      "begin": "\\{",
+      "end": "\\}|$",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.list.begin.epholang"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.list.end.epholang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#interpolation-code"
         }
       ]
     }
