@@ -1,0 +1,28 @@
+{
+  "tag": "0.2.0",
+  "name": "0.2.0 Alpha",
+  "prerelease": true,
+  "publishedAt": "2026-11-07T06:02:53Z",
+  "checkedAt": "2026-11-13",
+  "url": "https://github.com/ItsMeQuote/epholang/releases/tag/0.2.0",
+  "assets": [
+    {
+      "id": 719782618,
+      "name": "epholang-language-0.2.0.vsix",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.2.0/epholang-language-0.2.0.vsix",
+      "platform": "VS Code",
+      "kind": "editor",
+      "size": 7763,
+      "digest": "sha256:93fc0eb763e1d301030fbe522de61397173c3382ef84e5e37993ea2d8be4708e"
+    },
+    {
+      "id": 720034947,
+      "name": "epholang.exe",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.2.0/epholang.exe",
+      "platform": "Windows",
+      "kind": "interpreter",
+      "size": 601600,
+      "digest": "sha256:3fe88e0c9525f91f23476bedf18c5f0b893cace373fb89315a91c4e07ead3afe"
+    }
+  ]
+}

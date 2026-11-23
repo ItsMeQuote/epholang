@@ -1,0 +1,24 @@
+---
+import Layout from "../components/Layout.astro";
+import "../styles/global.css";
+---
+
+<Layout noindex
+  lang="en"
+  title="Page not found / Страница не найдена"
+  description="Return to Epholang in English or Russian."
+>
+  <div class="language-page">
+    <span class="eyebrow">404</span>
+    <h1>Page not found</h1>
+    <p lang="ru">Страница не найдена. Выберите раздел сайта.</p>
+    <div class="actions">
+      <a class="button" href="/epholang/ru/" lang="ru">
+        На главную
+      </a>
+      <a class="button secondary" href="/epholang/en/">
+        English home
+      </a>
+    </div>
+  </div>
+</Layout>

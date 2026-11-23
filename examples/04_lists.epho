@@ -1,4 +1,4 @@
-items ls<int> := list<int>{10, 20, 30}
+ls<int> items := list<int>{10, 20, 30}
 items = Insert(items, 2, 15)
 Output("#{items}\n")
 Output("Count: #{Length(items)}\n")

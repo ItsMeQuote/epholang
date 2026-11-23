@@ -125,7 +125,7 @@ jobs:
         run: npm test
 
       - name: Package VSIX
-        run: npx --no-install vsce package
+        run: npm exec --yes --package @vscode/vsce@3.6.2 -- vsce package
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4

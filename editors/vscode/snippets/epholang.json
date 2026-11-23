@@ -3,20 +3,9 @@
     "prefix": "function",
     "description": "Declare a typed Epholang function",
     "body": [
-      "function ${1:FunctionName}(${2:value} ${3:int}) ${4:int} {",
-      "    return ${4} ${2}",
-      "$0}"
-    ]
-  },
-  "If / otherwise": {
-    "prefix": "if",
-    "description": "Conditional with an alternative",
-    "body": [
-      "if ${1:condition} {",
-      "    $2",
-      "} otherwise {",
-      "    $0",
-      "}"
+      "function ${1:FunctionName}(${2:int} ${3:value}) -> ${4:int}:",
+      "\treturn ${4} ${3}",
+      "$0"
     ]
   },
   "Import module": {
@@ -59,18 +48,26 @@
     "prefix": "loop",
     "description": "Conditional loop",
     "body": [
-      "loop ${1:condition} {",
-      "    $0",
-      "}"
+      "loop ${1:condition}:",
+      "\t$0"
     ]
   },
   "Loop over list": {
     "prefix": "loop in",
     "description": "Iterate over a list",
     "body": [
-      "loop ${1:item} in ${2:items} {",
-      "    $0",
-      "}"
+      "loop ${1:item} in ${2:items}:",
+      "\t$0"
+    ]
+  },
+  "If / else": {
+    "prefix": "if",
+    "description": "Conditional with an alternative",
+    "body": [
+      "if ${1:condition}:",
+      "\t$2",
+      "else:",
+      "\t$0"
     ]
   }
 }

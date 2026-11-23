@@ -7,7 +7,7 @@ const { promisify } = require('node:util');
 
 const execFileAsync = promisify(execFile);
 
-async function runEphoFMT(source, executablePath) {
+async function runEphoFMT(source, executablePath, signal) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ephofmt-'));
     const filePath = path.join(directory, 'document.epho');
 
@@ -16,6 +16,7 @@ async function runEphoFMT(source, executablePath) {
 
         await execFileAsync(executablePath, ['format', filePath], {
             encoding: 'utf8',
+            signal,
             windowsHide: true,
             timeout: 15000,
             maxBuffer: 10 * 1024 * 1024
@@ -52,6 +53,18 @@ function minimalEdit(document, formatted) {
         suffix += 1;
     }
 
+    // A CRLF and a surrogate pair each occupy two UTF-16 code units but
+    // cannot be represented by an edit boundary between those units.
+    while (prefix > 0 && (splitsCharacter(original, prefix) || splitsCharacter(formatted, prefix))) {
+        prefix -= 1;
+    }
+    while (suffix > 0 && (
+        splitsCharacter(original, original.length - suffix) ||
+        splitsCharacter(formatted, formatted.length - suffix)
+    )) {
+        suffix -= 1;
+    }
+
     const range = new vscode.Range(
         document.positionAt(prefix),
         document.positionAt(original.length - suffix)
@@ -65,21 +78,41 @@ function minimalEdit(document, formatted) {
     ];
 }
 
+function splitsCharacter(text, offset) {
+    const before = text.charCodeAt(offset - 1);
+    const after = text.charCodeAt(offset);
+    return (before === 13 && after === 10) ||
+        (before >= 0xD800 && before <= 0xDBFF && after >= 0xDC00 && after <= 0xDFFF);
+}
+
 function activate(context) {
     const formatter = vscode.languages.registerDocumentFormattingEditProvider(
         { language: 'epholang' },
         {
-            async provideDocumentFormattingEdits(document) {
+            async provideDocumentFormattingEdits(document, _options, token) {
+                if (token.isCancellationRequested) {
+                    return [];
+                }
                 const executablePath = vscode.workspace
-                    .getConfiguration('epholang')
+                    .getConfiguration('epholang', document.uri)
                     .get('executablePath', 'epholang');
+                const version = document.version;
+                const controller = new AbortController();
+                const cancellation = token.onCancellationRequested(() => controller.abort());
 
                 try {
-                    const formatted = await runEphoFMT(document.getText(), executablePath);
+                    const formatted = await runEphoFMT(document.getText(), executablePath, controller.signal);
+                    if (token.isCancellationRequested || document.version !== version) {
+                        return [];
+                    }
                     return minimalEdit(document, formatted);
                 } catch (error) {
-                    vscode.window.showErrorMessage('EphoFMT: ' + error.message);
+                    if (!token.isCancellationRequested && document.version === version) {
+                        vscode.window.showErrorMessage('EphoFMT: ' + (error.stderr?.trim() || error.message));
+                    }
                     return [];
+                } finally {
+                    cancellation.dispose();
                 }
             }
         }

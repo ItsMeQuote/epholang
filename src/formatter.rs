@@ -1,234 +1,157 @@
-//! EphoFMT: the canonical source formatter for Epholang.
-//!
-//! This implementation preserves expression spelling and comments while
-//! normalizing block layout, indentation, line endings, and semicolon separators.
+//! EphoFMT preserves expression spelling and comment contents while normalizing
+//! layout, line endings and statement separators.
 
-/// Format Epholang source code using the official layout rules.
-pub fn format(source: &str) -> Result<String, String> {
-    let chars: Vec<char> = source.chars().collect();
-    let mut output = String::new();
-    let mut line = String::new();
-    let mut indent = 0usize;
-    let mut braces: Vec<bool> = Vec::new(); // true = block, false = literal
-    let mut parens = 0usize;
-    let mut brackets = 0usize;
-    let mut i = 0usize;
-    let mut previous_source_was_newline = false;
+use std::ops::Range;
 
-    fn flush(output: &mut String, line: &mut String, indent: usize) {
-        let trimmed = line.trim_matches(|c| c == ' ' || c == '\t' || c == '\r');
-        if !trimmed.is_empty() {
-            output.push_str(&"\t".repeat(indent));
-            output.push_str(trimmed);
-            output.push('\n');
+use super::{Diagnostic, EResult, Lexed, Parser, Span, Token, lex_source};
+
+enum PieceKind {
+    Code,
+    Colon,
+    Comment,
+    Separator,
+}
+
+struct Piece {
+    bytes: Range<usize>,
+    kind: PieceKind,
+}
+
+/// Format syntactically valid Epholang source. Static checking is independent.
+pub(crate) fn format(source: &str) -> EResult<String> {
+    let Lexed {
+        tokens,
+        comments,
+        line_depths,
+    } = lex_source(source)?;
+    let mut parser = Parser::new(tokens);
+    parser.parse_program()?;
+
+    let breaks = statement_breaks(&parser.tokens);
+    let mut commas = parser.trailing_commas;
+    commas.sort_unstable();
+
+    let mut pieces: Vec<_> = parser
+        .tokens
+        .into_iter()
+        .filter(Token::has_source_text)
+        .map(|token| {
+            let kind = if token.symbol(";") {
+                PieceKind::Separator
+            } else if token.symbol(":") {
+                PieceKind::Colon
+            } else {
+                PieceKind::Code
+            };
+            Piece {
+                bytes: token.bytes,
+                kind,
+            }
+        })
+        .chain(comments.into_iter().map(|bytes| Piece {
+            bytes,
+            kind: PieceKind::Comment,
+        }))
+        .collect();
+    pieces.sort_unstable_by_key(|piece| piece.bytes.start);
+
+    let formatted = render(source, pieces, &line_depths, &breaks, &commas);
+    if formatted != source {
+        let result =
+            lex_source(&formatted).and_then(|lexed| Parser::new(lexed.tokens).parse_program());
+        if let Err(error) = result {
+            return Err(Diagnostic::new(
+                Span::new(1, 1, 1),
+                format!("Formatting would produce invalid syntax: {}", error.message),
+            ));
         }
-        line.clear();
     }
+    Ok(formatted)
+}
 
-    fn starts_block_header(line: &str) -> bool {
-        let value = line.trim_start();
-        value.starts_with("function ")
-            || value == "function"
-            || value.starts_with("if ")
-            || value == "if"
-            || value.starts_with("loop ")
-            || value == "loop"
-            || value.starts_with("otherwise")
-            || value.contains("} otherwise")
+// Only the first semicolon between two statements on the same physical line
+// becomes a newline. Empty and trailing separators vanish.
+fn statement_breaks(tokens: &[Token]) -> Vec<usize> {
+    let mut breaks = Vec::new();
+    let mut code_line = None;
+    let mut separator = None;
+    for token in tokens.iter().filter(|token| token.has_source_text()) {
+        if token.symbol(";") {
+            if code_line == Some(token.span.line) {
+                separator.get_or_insert(token.bytes.start);
+            }
+        } else {
+            if let Some(byte) = separator.take() {
+                if code_line == Some(token.span.line) {
+                    breaks.push(byte);
+                }
+            }
+            code_line = Some(token.span.line);
+        }
     }
+    breaks
+}
 
-    while i < chars.len() {
-        let ch = chars[i];
-
-        // Strings (including interpolation expressions) are opaque.
-        if ch == '"' {
-            let start = i;
-            i += 1;
-            let mut closed = false;
-            while i < chars.len() {
-                if chars[i] == '\\' {
-                    i = (i + 2).min(chars.len());
-                    continue;
-                }
-                if chars[i] == '"' {
-                    i += 1;
-                    closed = true;
-                    break;
-                }
-                i += 1;
-            }
-            if !closed {
-                return Err(format!(
-                    "Unclosed string starting at character {}",
-                    start + 1
-                ));
-            }
-            line.extend(chars[start..i].iter());
+fn render(
+    source: &str,
+    pieces: Vec<Piece>,
+    line_depths: &[Option<usize>],
+    breaks: &[usize],
+    commas: &[usize],
+) -> String {
+    let mut output = String::with_capacity(source.len());
+    let mut scanned = 0;
+    let mut line = 0;
+    let mut last_end = 0;
+    let mut split_statement = false;
+    for piece in pieces {
+        let start = piece.bytes.start;
+        if matches!(piece.kind, PieceKind::Separator) {
+            split_statement |= breaks.binary_search(&start).is_ok();
             continue;
         }
 
-        // Preserve nested block comments as opaque text.
-        if ch == '/' && chars.get(i + 1) == Some(&'*') {
-            let start = i;
-            i += 2;
-            let mut depth = 1usize;
-            while i < chars.len() && depth > 0 {
-                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
-                    depth += 1;
-                    i += 2;
-                } else if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
-                    depth -= 1;
-                    i += 2;
-                } else {
-                    i += 1;
+        line += source.as_bytes()[scanned..start]
+            .iter()
+            .filter(|&&ch| ch == b'\n')
+            .count();
+        scanned = start;
+        let gap = &source[last_end..start];
+        let line_breaks = gap.bytes().filter(|&ch| ch == b'\n').count();
+        if output.is_empty() || split_statement || line_breaks > 0 {
+            if !output.is_empty() {
+                output.push('\n');
+                if line_breaks > 1 {
+                    output.push('\n');
                 }
             }
-            if depth != 0 {
-                return Err(format!(
-                    "Unclosed block comment starting at character {}",
-                    start + 1
-                ));
-            }
-            line.extend(chars[start..i].iter());
-            continue;
+            let depth = line_depths.get(line).copied().flatten().unwrap_or_else(|| {
+                // Comment-only lines do not have a syntactic depth. Keep
+                // their typed tabs while preserving the comment itself.
+                gap.rsplit('\n')
+                    .next()
+                    .unwrap_or("")
+                    .bytes()
+                    .filter(|&ch| ch == b'\t')
+                    .count()
+            });
+            output.extend(std::iter::repeat_n('\t', depth));
+        } else if !matches!(piece.kind, PieceKind::Colon) && gap.contains([' ', '\t']) {
+            output.push(' ');
         }
 
-        match ch {
-            '\r' => {
-                if chars.get(i + 1) == Some(&'\n') {
-                    i += 1;
-                }
-                if parens > 0 || brackets > 0 {
-                    if !line.ends_with(' ') {
-                        line.push(' ');
-                    }
-                } else if line.trim().is_empty() {
-                    if previous_source_was_newline
-                        && !output.is_empty()
-                        && !output.ends_with("\n\n")
-                    {
-                        output.push('\n');
-                    }
-                } else {
-                    flush(&mut output, &mut line, indent);
-                }
-                previous_source_was_newline = true;
-            }
-            '\n' => {
-                if parens > 0 || brackets > 0 {
-                    if !line.ends_with(' ') {
-                        line.push(' ');
-                    }
-                } else if line.trim().is_empty() {
-                    if previous_source_was_newline
-                        && !output.is_empty()
-                        && !output.ends_with("\n\n")
-                    {
-                        output.push('\n');
-                    }
-                } else {
-                    flush(&mut output, &mut line, indent);
-                }
-                previous_source_was_newline = true;
-            }
-            ';' if parens == 0 && brackets == 0 => {
-                flush(&mut output, &mut line, indent);
-                previous_source_was_newline = false;
-            }
-            '(' => {
-                parens += 1;
-                line.push(ch);
-            }
-            ')' => {
-                parens = parens.saturating_sub(1);
-                line.push(ch);
-            }
-            '[' => {
-                brackets += 1;
-                line.push(ch);
-            }
-            ']' => {
-                brackets = brackets.saturating_sub(1);
-                line.push(ch);
-            }
-            '{' => {
-                if starts_block_header(&line) {
-                    while line.ends_with(' ') || line.ends_with('\t') {
-                        line.pop();
-                    }
-                    if !line.is_empty() {
-                        line.push(' ');
-                    }
-                    line.push('{');
-                    flush(&mut output, &mut line, indent);
-                    braces.push(true);
-                    indent += 1;
-                } else {
-                    line.push('{');
-                    braces.push(false);
-                }
-            }
-            '}' => match braces.pop() {
-                Some(true) => {
-                    flush(&mut output, &mut line, indent);
-                    indent = indent.saturating_sub(1);
-                    line.push('}');
-
-                    let mut next = i + 1;
-                    while next < chars.len()
-                        && (chars[next] == ' '
-                            || chars[next] == '\t'
-                            || chars[next] == '\r'
-                            || chars[next] == '\n')
-                    {
-                        next += 1;
-                    }
-                    if chars[next..].starts_with(&['o', 't', 'h', 'e', 'r', 'w', 'i', 's', 'e'])
-                        && chars
-                            .get(next + 9)
-                            .is_none_or(|c| !c.is_ascii_alphanumeric() && *c != '_')
-                    {
-                        line.push_str(" otherwise");
-                        i = next + 8;
-                    }
-                }
-                Some(false) => line.push('}'),
-                None => {
-                    return Err(format!("Unmatched closing brace at character {}", i + 1));
-                }
-            },
-            c if c.is_whitespace() => {
-                if !line.is_empty() && !line.ends_with(' ') && !line.ends_with('\t') {
-                    line.push(' ');
-                }
-            }
-            _ => line.push(ch),
+        output.push_str(&source[piece.bytes.clone()]);
+        if commas.binary_search(&piece.bytes.end).is_ok() {
+            output.push(',');
         }
-
-        if !ch.is_whitespace() {
-            previous_source_was_newline = false;
-        }
-        i += 1;
+        last_end = piece.bytes.end;
+        split_statement = false;
     }
 
-    if !braces.is_empty() {
-        return Err("Unclosed brace".to_string());
-    }
-    if parens != 0 {
-        return Err("Unclosed parenthesis".to_string());
-    }
-    if brackets != 0 {
-        return Err("Unclosed square bracket".to_string());
-    }
-
-    flush(&mut output, &mut line, indent);
-    while output.ends_with("\n\n") {
-        output.pop();
-    }
-    if !output.is_empty() && !output.ends_with('\n') {
+    if !output.is_empty() {
         output.push('\n');
     }
-    Ok(output)
+    output
 }
 
 #[cfg(test)]
@@ -238,8 +161,8 @@ mod tests {
     #[test]
     fn separates_semicolon_statements() {
         assert_eq!(
-            format("value str := \"hi\"; Output(value)").unwrap(),
-            "value str := \"hi\"\nOutput(value)\n"
+            format("str value := \"hi\"; ; Output(value)").unwrap(),
+            "str value := \"hi\"\nOutput(value)\n"
         );
     }
 
@@ -249,33 +172,57 @@ mod tests {
     }
 
     #[test]
-    fn indents_blocks_with_tabs_and_joins_otherwise() {
-        let source = "if ready {\nOutput(\"yes\")\n}\notherwise {\nOutput(\"no\")\n}";
+    fn formats_indented_blocks_and_preserves_blank_lines_between_branches() {
+        let source = "if ready :\r\n\tOutput(\"yes\");\r\n\r\nelse:\r\n\tOutput(\"no\")";
         assert_eq!(
             format(source).unwrap(),
-            "if ready {\n\tOutput(\"yes\")\n} otherwise {\n\tOutput(\"no\")\n}\n"
+            "if ready:\n\tOutput(\"yes\")\n\nelse:\n\tOutput(\"no\")\n"
         );
     }
 
     #[test]
-    fn does_not_split_semicolons_inside_strings_or_comments() {
-        assert_eq!(
-            format("Output(\"a;b\") /* x;y */").unwrap(),
-            "Output(\"a;b\") /* x;y */\n"
+    fn preserves_strings_and_nested_comments_byte_for_byte() {
+        let source = concat!(
+            r##"Output("a;b #{strings:Repeat("}\"#{name}", 2)}") /* x;y"##,
+            "\r\n  /* nested { */ */\r\n"
         );
+        let expected = source.strip_suffix("\r\n").unwrap().to_string() + "\n";
+        assert_eq!(format(source).unwrap(), expected);
     }
 
     #[test]
     fn is_idempotent() {
-        let once = format("function Hello() none {\nOutput(\"hi\");\n}").unwrap();
+        let once = format("function Hello() -> none:\n\tOutput(\"hi\"); return none null").unwrap();
         assert_eq!(once, format(&once).unwrap());
     }
 
     #[test]
-    fn preserves_list_literal_braces() {
-        assert_eq!(
-            format("values ls<int> := list<int>{1, 2, 3}").unwrap(),
-            "values ls<int> := list<int>{1, 2, 3}\n"
-        );
+    fn preserves_compact_lists_and_distinguishes_header_colons() {
+        let source = "if Length(list<int>{1, 2}) == 2:\n\tOutput(list<int>{1, 2})\n";
+        assert_eq!(format(source).unwrap(), source);
+    }
+
+    #[test]
+    fn adds_one_comma_after_a_multiline_list_element_and_before_trivia() {
+        let source = "Output(\nlist<int>{\n1,\n2 /* keep */\n}\n)\n";
+        let expected = "Output(\n\tlist<int>{\n\t\t1,\n\t\t2, /* keep */\n\t}\n)\n";
+        assert_eq!(format(source).unwrap(), expected);
+        assert_eq!(format(expected).unwrap(), expected);
+
+        let source = "Output(list<int>{\n\t/* empty */\n})\n";
+        assert_eq!(format(source).unwrap(), source);
+    }
+
+    #[test]
+    fn syntax_errors_have_source_positions() {
+        for source in ["Output(1))\n", "int x :=\n", "if true {\n\tOutput(1)\n}\n"] {
+            let err = format(source).unwrap_err();
+            assert_eq!(err.span.line, 1, "{source}");
+            assert!(err.span.column > 1, "{source}");
+        }
+
+        let err = format("if true:\n \tOutput(1)").unwrap_err();
+        assert_eq!(err.span, super::Span::new(2, 1, 2));
+        assert!(err.message.contains("mix tabs and spaces"));
     }
 }
