@@ -101,7 +101,7 @@ cargo run -- run examples/03_loops.epho
 
 Use the extension and CLI from the same version of Epholang. To try the extension from this checkout, open a VS Code Extension Development Host with `--extensionDevelopmentPath` set to the full path of `editors/vscode`. If the matching CLI is outside your `PATH`, set `epholang.executablePath` to its full path.
 
-Epholang files use tabs and format on save by default. The VS Code **Format Document** command also invokes EphoFMT.
+Epholang files use tabs and format on save by default. The VS Code **Format Document** command also invokes EphoFMT. The extension highlights `-|` and the discard marker. EphoFMT formats `_=F()` as `_ = F()`. Use `check` to verify that `F()` produces a value.
 
 ## Language at a glance
 
@@ -121,7 +121,24 @@ Epholang files use tabs and format on save by default. The VS Code **Format Docu
 
 **Strings** support nested interpolation, such as `"Result: #{strings:Repeat("Hi #{name}", 2)}"`. Keep each interpolation on one physical line. Escapes such as `\n` and `\"` are still available in string text.
 
-**Functions** require explicit parameter and return types, an explicitly typed `return`, and a return on every path. Default arguments are not supported. Functions are declared at top level before use. Direct and indirect recursion are static errors.
+**Functions** are declared at the top level before use. Each parameter has an explicit type. Default arguments and recursion are forbidden. In a function declared with `-> T`, every path must return a value with a typed `return T expression`. The marker `-|` is valid only in a function header. Such a function finishes at the end of its body and forbids every form of `return`.
+
+```epholang
+function Display(str message) -|:
+	Output(message)
+
+function Find() -> none:
+	return none null
+
+Display("Ready\n")
+none result := Find()
+Output(result)
+_ = Find()
+```
+
+Here `Find()` returns the value `null` of type `none`. You can store, print, or explicitly discard it. `Display()` and `Output()` produce no value. Call them as statements. Assigning their result, passing it as an argument, or writing `_ = Display("Ready")` is a static error.
+
+**Using results.** Every expression that produces a value must use it in context. For example, standalone `42`, `result`, and `Length("abc") + 1` are errors. Use `_ = expression` to evaluate an expression once for its effects and discard its value. Errors propagate normally. A single `_` is valid only on the left of this statement. It creates no binding. Both `_ := value` and `result = _` are errors. Epholang has no operation to delete declarations through `_`. Names such as `_item` follow the ordinary identifier rules.
 
 **Union types** use `|`. For example, `int | str` allows an integer or a string and `ls<int | str>` allows both types as list elements.
 

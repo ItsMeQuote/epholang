@@ -60,8 +60,8 @@ export const features = [
   [
     "Типизированные функции",
     "Typed functions",
-    "Типы параметров, результата и return видны в исходном коде.",
-    "Parameter, result and return types are visible in the source.",
+    "Заголовок задаёт тип результата через -> или указывает отсутствие значения через -|.",
+    "Function headers declare a result type with -> or mark the absence of a value with -|.",
     "function Square(int value) -> int:",
   ],
   [
@@ -102,8 +102,8 @@ export const examples = [
     file: "02_functions.epho",
     ru: "Функция и результат",
     en: "A function and its result",
-    r: "Явные типы параметра, результата и оператора return.",
-    e: "Explicit types for the parameter, result and return statement.",
+    r: "Square возвращает число. DisplaySquare выводит его и завершается.",
+    e: "Square returns a number. DisplaySquare prints it and finishes.",
   },
   {
     file: "03_loops.epho",

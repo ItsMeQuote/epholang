@@ -83,3 +83,46 @@ fn invalid_syntax_gets_a_position_and_leaves_the_file_untouched() {
         assert_eq!(program.read(), source);
     }
 }
+
+#[test]
+fn discard_evaluates_once_preserves_order_and_propagates_runtime_errors() {
+    let program = Program::new(concat!(
+        "function Display(str text) -|:\n\tOutput(text)\n",
+        "function Count() -> int:\n\tDisplay(\"C\")\n\treturn int 7\n",
+        "function Find() -> none:\n\tDisplay(\"F\")\n\treturn none null\n",
+        "function Once() -> bool:\n\tDisplay(\"?\")\n\treturn bool true\n",
+        "_ = Count() + Count()\n_ = false && Once()\n",
+        "int x := Count()\nx = Count() + x\nOutput(x)\n",
+        "_ = Find()\nnone found := Find()\nOutput(found)\nDisplay(\"!\")\n",
+    ));
+    for command in ["tokens", "parse", "check"] {
+        assert!(program.command(&[command]).status.success(), "{command}");
+    }
+    let result = program.command(&["run"]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(result.stdout, b"CCCC14FFnull!");
+
+    let program = Program::new(
+        "function F() -> int:\n\tOutput(\"before\")\n\treturn int 1\n_ = F() / 0\nOutput(\"after\")",
+    );
+    assert!(program.command(&["check"]).status.success());
+    let result = program.command(&["run"]);
+    assert!(!result.status.success());
+    assert_eq!(result.stdout, b"before\n");
+    assert!(
+        String::from_utf8_lossy(&result.stderr)
+            .to_lowercase()
+            .contains("zero")
+    );
+
+    let program = Program::new("Output(\"before\")\n42");
+    assert!(!program.command(&["check"]).status.success());
+    let result = program.command(&["run"]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("_ = expression"));
+}

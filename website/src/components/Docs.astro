@@ -44,6 +44,19 @@ const wiki = [
     )}
   </p>
   <Code lang={lang} code={code("07_types.epho")} name="07_types.epho" />
+  <h2>{tr("Результаты функций", "Function results")}</h2>
+  <p>
+    {tr(
+      "Функция -> none возвращает значение null. Функция с маркером -| завершается в конце тела и запрещает return. Вызывайте её отдельной инструкцией, как Output.",
+      "A function declared with -> none returns the value null. A function declared with -| finishes at the end of its body and forbids return. Call it as a statement, like Output.",
+    )}
+  </p>
+  <p>
+    {tr(
+      "Выражение со значением нужно использовать или явно отбросить через _ = выражение. Правая часть выполняется один раз. Одиночный _ разрешён только слева в этой инструкции. Запись x = _ вызывает ошибку и не удаляет объявление.",
+      "Use each expression that produces a value, or explicitly discard it with _ = expression. The right side runs once. A lone _ is valid only on the left of this statement. Writing x = _ is an error and cannot delete a declaration.",
+    )}
+  </p>
   <h2>{tr("Инструменты командной строки", "Command-line tools")}</h2>
   <Code
     lang={lang}

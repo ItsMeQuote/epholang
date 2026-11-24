@@ -3,11 +3,13 @@
 
 use std::ops::Range;
 
-use super::{Diagnostic, EResult, Lexed, Parser, Span, Token, lex_source};
+use super::{Diagnostic, EResult, Lexed, Parser, Span, Token, TokenKind, lex_source};
 
 enum PieceKind {
     Code,
     Colon,
+    NoValueMarker,
+    DiscardEquals,
     Comment,
     Separator,
 }
@@ -31,6 +33,7 @@ pub(crate) fn format(source: &str) -> EResult<String> {
     let mut commas = parser.trailing_commas;
     commas.sort_unstable();
 
+    let mut after_discard = false;
     let mut pieces: Vec<_> = parser
         .tokens
         .into_iter()
@@ -40,9 +43,14 @@ pub(crate) fn format(source: &str) -> EResult<String> {
                 PieceKind::Separator
             } else if token.symbol(":") {
                 PieceKind::Colon
+            } else if token.symbol("-|") {
+                PieceKind::NoValueMarker
+            } else if after_discard && token.symbol("=") {
+                PieceKind::DiscardEquals
             } else {
                 PieceKind::Code
             };
+            after_discard = token.kind == TokenKind::Discard;
             Piece {
                 bytes: token.bytes,
                 kind,
@@ -104,6 +112,7 @@ fn render(
     let mut line = 0;
     let mut last_end = 0;
     let mut split_statement = false;
+    let mut after_discard_equals = false;
     for piece in pieces {
         let start = piece.bytes.start;
         if matches!(piece.kind, PieceKind::Separator) {
@@ -136,7 +145,13 @@ fn render(
                     .count()
             });
             output.extend(std::iter::repeat_n('\t', depth));
-        } else if !matches!(piece.kind, PieceKind::Colon) && gap.contains([' ', '\t']) {
+        } else if after_discard_equals
+            || matches!(
+                piece.kind,
+                PieceKind::NoValueMarker | PieceKind::DiscardEquals
+            )
+            || (!matches!(piece.kind, PieceKind::Colon) && gap.contains([' ', '\t']))
+        {
             output.push(' ');
         }
 
@@ -144,6 +159,7 @@ fn render(
         if commas.binary_search(&piece.bytes.end).is_ok() {
             output.push(',');
         }
+        after_discard_equals = matches!(piece.kind, PieceKind::DiscardEquals);
         last_end = piece.bytes.end;
         split_statement = false;
     }
@@ -188,6 +204,22 @@ mod tests {
         );
         let expected = source.strip_suffix("\r\n").unwrap().to_string() + "\n";
         assert_eq!(format(source).unwrap(), expected);
+    }
+
+    #[test]
+    fn formats_discard_and_no_value_headers() {
+        let source = "function _F()-| :\r\n\t_=1; _ /*why*/=/*value*/2\r\n_F()";
+        let expected = "function _F() -|:\n\t_ = 1\n\t_ /*why*/ = /*value*/2\n_F()\n";
+        assert_eq!(format(source).unwrap(), expected);
+        assert_eq!(format(expected).unwrap(), expected);
+        for bad in [
+            "_ := F()",
+            "Output(_)",
+            "int _ := 1",
+            "function F() - |:\n\tOutput(1)",
+        ] {
+            assert!(format(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -116,6 +116,7 @@ enum StringPart {
 #[derive(Debug, Clone, PartialEq)]
 enum TokenKind {
     Identifier(String),
+    Discard,
     Integer(i64),
     Float(f64),
     String(String),
@@ -411,7 +412,12 @@ impl<'a> Lexer<'a> {
             {
                 self.pos += 1;
             }
-            TokenKind::Identifier(self.source[self.byte_at(start)..self.byte_at(self.pos)].into())
+            let name = &self.source[self.byte_at(start)..self.byte_at(self.pos)];
+            if name == "_" {
+                TokenKind::Discard
+            } else {
+                TokenKind::Identifier(name.into())
+            }
         } else {
             let next = self.char_at(1);
             if matches!((ch, next), ('<' | '>', Some('='))) {
@@ -426,7 +432,7 @@ impl<'a> Lexer<'a> {
                 ('=' | '!' | ':', Some('='))
                     | ('&', Some('&'))
                     | ('|', Some('|'))
-                    | ('-', Some('>'))
+                    | ('-', Some('>' | '|'))
             ) {
                 self.pos += 2;
             } else if "+-*/%^(){}[],;=<>!:|".contains(ch) {
@@ -1064,10 +1070,23 @@ struct Parameter {
 }
 
 #[derive(Debug, Clone)]
+enum FunctionResult<T> {
+    Value(T),
+    NoValue,
+}
+
+const DISCARD_POSITION: &str = "'_' is only allowed on the left of '_ = expression'";
+const VALUE_REQUIRED: &str =
+    "This call produces no value and cannot be used as an expression value";
+const UNUSED_VALUE: &str = "Unused expression value; use '_ = expression' to discard it";
+const NOTHING_TO_DISCARD: &str = "This call produces no value to discard";
+const NO_VALUE_RETURN: &str = "'return' is forbidden in a function declared with '-|'";
+
+#[derive(Debug, Clone)]
 struct FunctionDef {
     name: Name,
     parameters: Vec<Parameter>,
-    return_type: TypeAnn,
+    result: FunctionResult<TypeAnn>,
     body: Vec<Stmt>,
 }
 
@@ -1137,6 +1156,7 @@ enum Statement {
     },
 
     Expression(Expr),
+    Discard(Expr),
 
     Return {
         declared_type: TypeAnn,
@@ -1239,6 +1259,7 @@ impl Parser {
                 span: token.span,
             }),
 
+            TokenKind::Discard => Err(Diagnostic::new(token.span, DISCARD_POSITION)),
             _ => Err(Diagnostic::new(token.span, "Expected an identifier")),
         }
     }
@@ -1421,16 +1442,28 @@ impl Parser {
             }
         }
         self.expect_symbol(")")?;
-        self.expect_symbol("->")?;
-        let return_type = self.parse_type()?;
-        if !valid_type(&return_type.name) {
-            return Err(Diagnostic::new(return_type.span, "Invalid return type"));
-        }
+        let result = if self.symbol("-|") {
+            self.advance();
+            FunctionResult::NoValue
+        } else {
+            if !self.symbol("->") {
+                return Err(Diagnostic::new(
+                    self.current().span,
+                    "Expected '->' or '-|' after function parameters",
+                ));
+            }
+            self.advance();
+            let ty = self.parse_type()?;
+            if !valid_type(&ty.name) {
+                return Err(Diagnostic::new(ty.span, "Invalid return type"));
+            }
+            FunctionResult::Value(ty)
+        };
         let body = self.parse_block()?;
         Ok(Statement::Function(FunctionDef {
             name,
             parameters,
-            return_type,
+            result,
             body,
         }))
     }
@@ -1504,10 +1537,24 @@ impl Parser {
         let span = self.current().span;
         let kind = self.parse_statement_kind()?;
 
+        let span = if matches!(kind, Statement::Expression(_)) {
+            span.through(self.tokens[self.pos - 1].span)
+        } else {
+            span
+        };
         Ok(Stmt { kind, span })
     }
 
     fn parse_statement_kind(&mut self) -> EResult<Statement> {
+        if self.current().kind == TokenKind::Discard {
+            let marker = self.advance();
+            if !self.symbol("=") {
+                return Err(Diagnostic::new(marker.span, DISCARD_POSITION));
+            }
+            self.advance();
+            return Ok(Statement::Discard(self.parse_expression(0)?));
+        }
+
         if self.identifier_is("import") {
             self.advance(); // 'import'
 
@@ -1566,7 +1613,10 @@ impl Parser {
         }
 
         if self.identifier_is("return") {
-            self.advance();
+            let keyword = self.advance();
+            if self.current().kind == TokenKind::Discard {
+                return Err(Diagnostic::new(self.current().span, DISCARD_POSITION));
+            }
 
             let starts_with_type = matches!(
                 &self.current().kind,
@@ -1579,8 +1629,8 @@ impl Parser {
 
             if !starts_with_type {
                 return Err(Diagnostic::new(
-                    self.current().span,
-                    "Expected a return type after 'return' (e.g. 'return int x')",
+                    keyword.span,
+                    "Expected 'return T expression' in a value-returning function. Functions declared with '-|' forbid 'return'",
                 ));
             }
 
@@ -1601,7 +1651,10 @@ impl Parser {
             let saved = self.pos;
             let annotation = self.parse_type();
             let is_declaration = annotation.is_ok()
-                && matches!(self.current().kind, TokenKind::Identifier(_))
+                && matches!(
+                    self.current().kind,
+                    TokenKind::Identifier(_) | TokenKind::Discard
+                )
                 && (known_type || matches!(self.look(1), TokenKind::Symbol(op) if op == ":="));
             if is_declaration {
                 let declared_type = annotation?;
@@ -1744,6 +1797,7 @@ impl Parser {
         let span = token.span;
 
         let kind = match token.kind {
+            TokenKind::Discard => return Err(Diagnostic::new(span, DISCARD_POSITION)),
             TokenKind::Integer(n) => ExprKind::Literal(Value::Int(n)),
             TokenKind::Float(n) => ExprKind::Literal(Value::Flt(n)),
             TokenKind::String(s) => ExprKind::Literal(Value::Str(s)),
@@ -1832,7 +1886,7 @@ impl Parser {
 
             TokenKind::Identifier(name) => {
                 if self.symbol(":")
-                    && matches!(self.look(1), TokenKind::Identifier(_))
+                    && matches!(self.look(1), TokenKind::Identifier(_) | TokenKind::Discard)
                     && self.tokens[self.pos + 1].bytes.start == self.current().bytes.end
                 {
                     let colon_span = self.current().span;
@@ -1979,7 +2033,7 @@ struct VarInfo {
 
 struct FuncInfo {
     params: Vec<String>,
-    return_type: String,
+    result: FunctionResult<TypeAnn>,
     used: bool,
     span: Span,
 }
@@ -1996,7 +2050,7 @@ struct Checker {
     function_order: Vec<String>,
     calls: HashMap<String, Vec<String>>,
     unresolved_calls: Vec<UnresolvedCall>,
-    current_function: Option<(String, String)>,
+    current_function: Option<(String, FunctionResult<TypeAnn>)>,
     errors: Vec<Diagnostic>,
     seen_non_import: bool,
     imported_paths: Vec<String>,
@@ -2326,7 +2380,15 @@ impl Checker {
             }
 
             Statement::Expression(expr) => {
-                self.expr_type(expr);
+                if matches!(self.expr_result(expr), Some(FunctionResult::Value(_))) {
+                    self.err(stmt.span, UNUSED_VALUE);
+                }
+            }
+
+            Statement::Discard(expr) => {
+                if matches!(self.expr_result(expr), Some(FunctionResult::NoValue)) {
+                    self.err(expr.span, NOTHING_TO_DISCARD);
+                }
             }
 
             Statement::Return {
@@ -2338,7 +2400,9 @@ impl Checker {
                 match self.current_function.clone() {
                     None => self.err(stmt.span, "return is only allowed inside a function"),
 
-                    Some((function, return_type)) => {
+                    Some((_, FunctionResult::NoValue)) => self.err(stmt.span, NO_VALUE_RETURN),
+                    Some((function, FunctionResult::Value(ty))) => {
+                        let return_type = ty.name;
                         if !type_accepts(&return_type, &declared_type.name) {
                             self.err(
                                 declared_type.span,
@@ -2455,7 +2519,7 @@ impl Checker {
                     .iter()
                     .map(|p| p.declared_type.name.clone())
                     .collect(),
-                return_type: definition.return_type.name.clone(),
+                result: definition.result.clone(),
                 used: false,
                 span: name.span,
             },
@@ -2463,7 +2527,7 @@ impl Checker {
 
         self.function_order.push(name.text.clone());
 
-        self.current_function = Some((name.text.clone(), definition.return_type.name.clone()));
+        self.current_function = Some((name.text.clone(), definition.result.clone()));
 
         let enclosing_loop_depth = self.loop_depth;
         self.loop_depth = 0;
@@ -2480,7 +2544,9 @@ impl Checker {
 
         self.check_block(&definition.body);
 
-        if !block_guarantees_return(&definition.body) {
+        if matches!(definition.result, FunctionResult::Value(_))
+            && !block_guarantees_return(&definition.body)
+        {
             self.err(
                 name.span,
                 format!(
@@ -2518,7 +2584,31 @@ impl Checker {
         self.errors.len() == previous_errors
     }
 
+    /// Type of an operand in a context that requires a value.
     fn expr_type(&mut self, expr: &Expr) -> Option<String> {
+        match self.expr_result(expr)? {
+            FunctionResult::Value(ty) => Some(ty),
+            FunctionResult::NoValue => {
+                self.err(expr.span, VALUE_REQUIRED);
+                None
+            }
+        }
+    }
+
+    fn expr_result(&mut self, expr: &Expr) -> Option<FunctionResult<String>> {
+        // Some operations know their result type even when an operand is invalid.
+        // Keep the operand's diagnostic without reporting a second usage error.
+        let errors = self.errors.len();
+        let unresolved = self.unresolved_calls.len();
+        let result = self.infer_result(expr);
+        if self.errors.len() == errors && self.unresolved_calls.len() == unresolved {
+            result
+        } else {
+            None
+        }
+    }
+
+    fn infer_result(&mut self, expr: &Expr) -> Option<FunctionResult<String>> {
         match &expr.kind {
             ExprKind::Literal(value) => Some(value.type_name()),
 
@@ -2646,7 +2736,7 @@ impl Checker {
                 }
             }
 
-            ExprKind::Call(name, args) => self.call_type(name, args, expr.span),
+            ExprKind::Call(name, args) => return self.call_type(name, args, expr.span),
 
             ExprKind::ModuleCall {
                 module,
@@ -2685,6 +2775,7 @@ impl Checker {
                 }
             }
         }
+        .map(FunctionResult::Value)
     }
 
     fn expect_count(&mut self, name: &str, args: &[Expr], count: usize, span: Span) -> bool {
@@ -3107,14 +3198,19 @@ impl Checker {
         }
     }
 
-    fn call_type(&mut self, name: &str, args: &[Expr], span: Span) -> Option<String> {
+    fn call_type(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<FunctionResult<String>> {
         match name {
             "Output" => {
                 if self.expect_count(name, args, 1, span) {
                     self.expr_type(&args[0]);
                 }
 
-                Some("none".into())
+                return Some(FunctionResult::NoValue);
             }
 
             "Input" => {
@@ -3266,7 +3362,7 @@ impl Checker {
                 };
                 info.used = true;
                 let params = info.params.clone();
-                let return_type = info.return_type.clone();
+                let result = info.result.clone();
 
                 if args.len() != params.len() {
                     self.err(
@@ -3302,9 +3398,12 @@ impl Checker {
                     }
                 }
 
-                Some(return_type)
+                return Some(match result {
+                    FunctionResult::Value(ty) => FunctionResult::Value(ty.name),
+                    FunctionResult::NoValue => FunctionResult::NoValue,
+                });
             }
-        }
+        }.map(FunctionResult::Value)
     }
 }
 
@@ -3327,7 +3426,7 @@ enum ExecFlow {
 struct Interpreter {
     scopes: Vec<HashMap<String, Variable>>,
     functions: HashMap<String, FunctionDef>,
-    return_types: Vec<String>,
+    return_types: Vec<FunctionResult<TypeAnn>>,
 }
 
 fn resolve_index(n: i64, length: usize, is_insert: bool, span: Span) -> EResult<usize> {
@@ -3682,7 +3781,14 @@ impl Interpreter {
             }
 
             Statement::Expression(expr) => {
-                self.evaluate(expr)?;
+                if matches!(self.evaluate_result(expr)?, FunctionResult::Value(_)) {
+                    return Err(Diagnostic::new(stmt.span, UNUSED_VALUE));
+                }
+            }
+            Statement::Discard(expr) => {
+                if matches!(self.evaluate_result(expr)?, FunctionResult::NoValue) {
+                    return Err(Diagnostic::new(expr.span, NOTHING_TO_DISCARD));
+                }
             }
 
             Statement::Return {
@@ -3693,6 +3799,10 @@ impl Interpreter {
                     Diagnostic::new(stmt.span, "return is only allowed inside a function")
                 })?;
 
+                let FunctionResult::Value(annotation) = expected else {
+                    return Err(Diagnostic::new(stmt.span, NO_VALUE_RETURN));
+                };
+                let expected = annotation.name;
                 if !type_accepts(&expected, &declared_type.name) {
                     return Err(Diagnostic::new(
                         declared_type.span,
@@ -3815,6 +3925,13 @@ impl Interpreter {
     }
 
     fn evaluate(&mut self, expr: &Expr) -> EResult<Value> {
+        match self.evaluate_result(expr)? {
+            FunctionResult::Value(value) => Ok(value),
+            FunctionResult::NoValue => Err(Diagnostic::new(expr.span, VALUE_REQUIRED)),
+        }
+    }
+
+    fn evaluate_result(&mut self, expr: &Expr) -> EResult<FunctionResult<Value>> {
         match &expr.kind {
             ExprKind::Literal(value) => Ok(value.clone()),
 
@@ -3935,8 +4052,8 @@ impl Interpreter {
                 let a = self.evaluate(left)?;
                 if op == "&&" || op == "||" {
                     match &a {
-                        Value::Bool(false) if op == "&&" => return Ok(Value::Bool(false)),
-                        Value::Bool(true) if op == "||" => return Ok(Value::Bool(true)),
+                        Value::Bool(false) if op == "&&" => return Ok(FunctionResult::Value(Value::Bool(false))),
+                        Value::Bool(true) if op == "||" => return Ok(FunctionResult::Value(Value::Bool(true))),
                         Value::Bool(_) => {}
                         other => {
                             return Err(Diagnostic::new(
@@ -4041,7 +4158,7 @@ impl Interpreter {
                 Ok(result)
             }
 
-            ExprKind::Call(name, args) => self.call(name, args, expr.span),
+            ExprKind::Call(name, args) => return self.call(name, args, expr.span),
 
             ExprKind::ModuleCall {
                 module,
@@ -4080,7 +4197,7 @@ impl Interpreter {
                     )),
                 }
             }
-        }
+        }.map(FunctionResult::Value)
     }
 
     fn check_count(name: &str, actual: usize, expected: usize, span: Span) -> EResult<()> {
@@ -4571,7 +4688,7 @@ impl Interpreter {
         }
     }
 
-    fn call(&mut self, name: &str, args: &[Expr], span: Span) -> EResult<Value> {
+    fn call(&mut self, name: &str, args: &[Expr], span: Span) -> EResult<FunctionResult<Value>> {
         match name {
             "Output" => {
                 Self::check_count(name, args.len(), 1, span)?;
@@ -4592,7 +4709,7 @@ impl Interpreter {
                     OUTPUT_LINE_OPEN.store(!text.ends_with('\n'), Ordering::Relaxed);
                 }
 
-                return Ok(Value::Null);
+                return Ok(FunctionResult::NoValue);
             }
 
             "Input" => {
@@ -4657,7 +4774,7 @@ impl Interpreter {
                     OUTPUT_LINE_OPEN.store(false, Ordering::Relaxed);
                 }
 
-                return Ok(Value::Str(line));
+                return Ok(FunctionResult::Value(Value::Str(line)));
             }
 
             "Includes" => {
@@ -4714,7 +4831,8 @@ impl Interpreter {
                             other.type_name()
                         ),
                     )),
-                };
+                }
+                .map(FunctionResult::Value);
             }
 
             "Length" => {
@@ -4738,7 +4856,8 @@ impl Interpreter {
                             other.type_name()
                         ),
                     )),
-                };
+                }
+                .map(FunctionResult::Value);
             }
 
             "Insert" => {
@@ -4781,7 +4900,7 @@ impl Interpreter {
 
                 elements.insert(index, element);
 
-                return Ok(Value::List(inner, elements));
+                return Ok(FunctionResult::Value(Value::List(inner, elements)));
             }
 
             "Remove" => {
@@ -4816,7 +4935,7 @@ impl Interpreter {
 
                 elements.remove(index);
 
-                return Ok(Value::List(inner, elements));
+                return Ok(FunctionResult::Value(Value::List(inner, elements)));
             }
 
             _ => {}
@@ -4850,7 +4969,7 @@ impl Interpreter {
         // A function cannot see the caller's local variables.
         let saved_scopes = self.scopes.split_off(1);
 
-        self.return_types.push(definition.return_type.name.clone());
+        self.return_types.push(definition.result.clone());
 
         let result = self.call_inner(&definition, values);
 
@@ -4865,7 +4984,7 @@ impl Interpreter {
         &mut self,
         definition: &FunctionDef,
         values: Vec<(Value, Span)>,
-    ) -> EResult<Value> {
+    ) -> EResult<FunctionResult<Value>> {
         let mut frame = HashMap::new();
         let mut values = values.into_iter();
 
@@ -4904,8 +5023,16 @@ impl Interpreter {
 
         self.scopes.push(frame);
 
-        let value = match self.execute_block(&definition.body)? {
-            ExecFlow::Return(value) => value,
+        let (annotation, value) = match self.execute_block(&definition.body)? {
+            ExecFlow::Return(value) => match &definition.result {
+                FunctionResult::Value(ty) => (ty, value),
+                FunctionResult::NoValue => {
+                    return Err(Diagnostic::new(definition.name.span, NO_VALUE_RETURN));
+                }
+            },
+            ExecFlow::Continue if matches!(definition.result, FunctionResult::NoValue) => {
+                return Ok(FunctionResult::NoValue);
+            }
             ExecFlow::Continue => {
                 return Err(Diagnostic::new(
                     definition.name.span,
@@ -4929,19 +5056,19 @@ impl Interpreter {
             }
         };
 
-        if !type_accepts(&definition.return_type.name, &value.type_name()) {
+        if !type_accepts(&annotation.name, &value.type_name()) {
             return Err(Diagnostic::new(
-                definition.return_type.span,
+                annotation.span,
                 format!(
                     "Function '{}' declares return type {}, got {}",
                     definition.name.text,
-                    definition.return_type.name,
+                    annotation.name,
                     value.type_name()
                 ),
             ));
         }
 
-        Ok(value)
+        Ok(FunctionResult::Value(value))
     }
 }
 
@@ -5100,6 +5227,17 @@ mod stage1_tests {
     use super::*;
 
     #[test]
+    fn return_markers_and_discard_tokens_are_unambiguous() {
+        let tokens = lex("-| -> - | || -/* gap */| _ _item item_").unwrap();
+        for (token, symbol) in tokens.iter().zip(["-|", "->", "-", "|", "||", "-", "|"]) {
+            assert!(token.symbol(symbol));
+        }
+        assert_eq!(tokens[7].kind, TokenKind::Discard);
+        assert_eq!(tokens[8].kind, TokenKind::Identifier("_item".into()));
+        assert_eq!(tokens[9].kind, TokenKind::Identifier("item_".into()));
+    }
+
+    #[test]
     fn numeric_literals_have_distinct_types() {
         let tokens = lex("5 5.0").unwrap();
         assert!(matches!(tokens[0].kind, TokenKind::Integer(5)));
@@ -5160,32 +5298,33 @@ mod stage1_tests {
 }
 
 #[cfg(test)]
+fn evaluate_checked(source: &str) -> EResult<Value> {
+    let program = match check_source(source) {
+        Ok(program) => program,
+        Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
+        Err(Failure::Syntax(err)) => panic!("Syntax error: {:?}", err),
+        Err(Failure::Runtime(_)) => unreachable!(),
+    };
+    let mut vm = Interpreter::new();
+    let (last, previous) = program.split_last().expect("Non-empty program");
+    vm.execute_block(previous)?;
+    if let Statement::Discard(expr) = &last.kind {
+        vm.evaluate(expr)
+    } else {
+        panic!("Expected a final '_ = expression' in the test program");
+    }
+}
+
+#[cfg(test)]
 mod stage2_tests {
     use super::*;
 
-    fn evaluate_checked(source: &str) -> EResult<Value> {
-        let program = match check_source(source) {
-            Ok(program) => program,
-            Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
-            Err(Failure::Syntax(err)) => panic!("Syntax error: {:?}", err),
-            Err(Failure::Runtime(_)) => unreachable!(),
-        };
-        let mut vm = Interpreter::new();
-        let (last, previous) = program.split_last().expect("Non-empty program");
-        vm.execute_block(previous)?;
-        if let Statement::Expression(expr) = &last.kind {
-            vm.evaluate(expr)
-        } else {
-            panic!("Last statement must be an expression");
-        }
-    }
-
     fn math(expr: &str) -> EResult<Value> {
-        evaluate_checked(&format!("import \"math\" as math\n{}", expr))
+        evaluate_checked(&format!("import \"math\" as math\n_ = {expr}"))
     }
 
     fn types(expr: &str) -> EResult<Value> {
-        evaluate_checked(&format!("import \"types\" as types\n{}", expr))
+        evaluate_checked(&format!("import \"types\" as types\n_ = {expr}"))
     }
 
     #[test]
@@ -5200,7 +5339,7 @@ loop i < 10:
 	if i == 5:
 		break
 	total = total + i
-total
+_ = total
 "#;
 
         assert_eq!(evaluate_checked(source).unwrap(), Value::Int(8));
@@ -5217,7 +5356,7 @@ loop item in values:
 	total = total + item
 	if item == 3:
 		break
-total
+_ = total
 "#;
 
         assert_eq!(evaluate_checked(source).unwrap(), Value::Int(4));
@@ -5236,7 +5375,7 @@ loop outer < 3:
 		if inner == 2:
 			break
 		total = total + 1
-total
+_ = total
 "#;
 
         assert_eq!(evaluate_checked(source).unwrap(), Value::Int(3));
@@ -5282,12 +5421,12 @@ Output(First())
         assert_eq!(math("math:AbsoluteValue((-2.5))").unwrap(), Value::Flt(2.5));
         assert_eq!(math("math:SquareRoot(81.0)").unwrap(), Value::Flt(9.0));
         assert!(math("math:SquareRoot((-1.0))").is_err());
-        assert!(check_source("import \"math\" as math\nmath:SquareRoot(9)").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:SquareRoot(9)").is_err());
     }
 
     #[test]
     fn absolute_value_integer_minimum_rejected() {
-        let source = "import \"math\" as math\nimport \"types\" as types\nmath:AbsoluteValue(types:Convert(\"-9223372036854775808\", int))";
+        let source = "import \"math\" as math\nimport \"types\" as types\n_ = math:AbsoluteValue(types:Convert(\"-9223372036854775808\", int))";
         assert!(evaluate_checked(source).is_err());
     }
 
@@ -5309,7 +5448,7 @@ Output(First())
             Value::Flt(0.0)
         );
         assert!(math("math:Clamp(1, 3, 2)").is_err());
-        assert!(check_source("import \"math\" as math\nmath:Minimum(2, 3.0)").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:Minimum(2, 3.0)").is_err());
     }
 
     #[test]
@@ -5321,7 +5460,7 @@ Output(First())
             Value::Flt(4.0)
         );
         assert!(math("math:Sum(list<int>{9223372036854775807, 1})").is_err());
-        assert!(check_source("import \"math\" as math\nmath:Sum(list<str>{\"x\"})").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:Sum(list<str>{\"x\"})").is_err());
     }
 
     #[test]
@@ -5349,19 +5488,19 @@ Output(First())
         assert_eq!(math("math:RandomInterval(5, 5)").unwrap(), Value::Int(5));
 
         // Invalid literal bounds are rejected during static checking, not at runtime.
-        let literal_bounds = "import \"math\" as math\nmath:RandomInterval(10, 1)";
+        let literal_bounds = "import \"math\" as math\n_ = math:RandomInterval(10, 1)";
         assert!(matches!(
             check_source(literal_bounds),
             Err(Failure::Static(_))
         ));
 
         // Non-literal bounds pass static checking but fail at runtime when inverted.
-        let dynamic_bounds = "import \"math\" as math\nint minimum := 10\nint maximum := 1\nmath:RandomInterval(minimum, maximum)";
+        let dynamic_bounds = "import \"math\" as math\nint minimum := 10\nint maximum := 1\n_ = math:RandomInterval(minimum, maximum)";
         assert!(check_source(dynamic_bounds).is_ok());
         assert!(evaluate_checked(dynamic_bounds).is_err());
 
         // The numeric types of both boundaries are checked statically.
-        assert!(check_source("import \"math\" as math\nmath:RandomInterval(1, 2.0)").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:RandomInterval(1, 2.0)").is_err());
     }
 
     #[test]
@@ -5456,14 +5595,14 @@ Output(First())
         assert!(
             check_source(
                 r#"import "types" as types
-types:Convert("hello", ls<int>)"#
+_ = types:Convert("hello", ls<int>)"#
             )
             .is_err()
         );
         assert!(
             check_source(
                 r#"import "types" as types
-types:Convert(123, ls<str>)"#
+_ = types:Convert(123, ls<str>)"#
             )
             .is_err()
         );
@@ -5495,25 +5634,26 @@ types:Convert(123, ls<str>)"#
 
     #[test]
     fn convert_rejects_unsupported_pair_statically() {
-        assert!(check_source("import \"types\" as types\ntypes:Convert(true, int)").is_err());
+        assert!(check_source("import \"types\" as types\n_ = types:Convert(true, int)").is_err());
         assert!(
-            check_source("import \"types\" as types\ntypes:Convert(list<int>{1}, str)").is_err()
+            check_source("import \"types\" as types\n_ = types:Convert(list<int>{1}, str)")
+                .is_err()
         );
     }
 
     #[test]
     fn type_target_must_be_literal() {
         assert!(
-            check_source("import \"types\" as types\ntypes:Convert(1, types:CurrentTypeOf(1))")
+            check_source("import \"types\" as types\n_ = types:Convert(1, types:CurrentTypeOf(1))")
                 .is_err()
         );
         assert!(
-            check_source("import \"types\" as types\ntypes:IsConvertible(1, ls<int>)").is_err()
+            check_source("import \"types\" as types\n_ = types:IsConvertible(1, ls<int>)").is_err()
         );
     }
 
     fn strings(expr: &str) -> EResult<Value> {
-        evaluate_checked(&format!("import \"strings\" as strings\n{}", expr))
+        evaluate_checked(&format!("import \"strings\" as strings\n_ = {expr}"))
     }
 
     #[test]
@@ -5549,28 +5689,28 @@ types:Convert(123, ls<str>)"#
         assert!(
             check_source(
                 r#"import "strings" as strings
-strings:AlphabetRange("AA", "Z")"#
+_ = strings:AlphabetRange("AA", "Z")"#
             )
             .is_err()
         );
         assert!(
             check_source(
                 r#"import "strings" as strings
-strings:AlphabetRange("A", "z")"#
+_ = strings:AlphabetRange("A", "z")"#
             )
             .is_err()
         );
         assert!(
             check_source(
                 r#"import "strings" as strings
-strings:AlphabetRange("1", "9")"#
+_ = strings:AlphabetRange("1", "9")"#
             )
             .is_err()
         );
         assert!(
             check_source(
                 r#"import "strings" as strings
-strings:AlphabetRange("Я", "Я")"#
+_ = strings:AlphabetRange("Я", "Я")"#
             )
             .is_err()
         );
@@ -5581,7 +5721,7 @@ strings:AlphabetRange("Я", "Я")"#
         let source = r#"import "strings" as strings
 str start := "A"
 str end := "z"
-strings:AlphabetRange(start, end)"#;
+_ = strings:AlphabetRange(start, end)"#;
         assert!(check_source(source).is_ok());
         assert!(evaluate_checked(source).is_err());
     }
@@ -5635,21 +5775,21 @@ strings:AlphabetRange(start, end)"#;
         assert!(
             check_source(
                 r#"import "strings" as strings
-strings:AlphabetRange(1, "Z")"#
+_ = strings:AlphabetRange(1, "Z")"#
             )
             .is_err()
         );
         assert!(
             check_source(
                 r#"import "strings" as strings
-strings:IsAsciiUppercase(1)"#
+_ = strings:IsAsciiUppercase(1)"#
             )
             .is_err()
         );
         assert!(
             check_source(
                 r#"import "strings" as strings
-strings:IsAsciiLowercase("a", "b")"#
+_ = strings:IsAsciiLowercase("a", "b")"#
             )
             .is_err()
         );
@@ -5658,17 +5798,17 @@ strings:IsAsciiLowercase("a", "b")"#
     #[test]
     fn string_indexing_is_one_based_and_returns_str() {
         assert_eq!(
-            evaluate_checked(r#""hello"[1]"#).unwrap(),
+            evaluate_checked(r#"_ = "hello"[1]"#).unwrap(),
             Value::Str("h".into())
         );
         assert_eq!(
-            evaluate_checked(r#""hello"[5]"#).unwrap(),
+            evaluate_checked(r#"_ = "hello"[5]"#).unwrap(),
             Value::Str("o".into())
         );
         assert_eq!(
             evaluate_checked(
                 r#"str text := "hello"
-text[2]"#
+_ = text[2]"#
             )
             .unwrap(),
             Value::Str("e".into())
@@ -5678,15 +5818,15 @@ text[2]"#
     #[test]
     fn string_indexing_uses_unicode_scalar_values() {
         assert_eq!(
-            evaluate_checked(r#""Привет"[1]"#).unwrap(),
+            evaluate_checked(r#"_ = "Привет"[1]"#).unwrap(),
             Value::Str("П".into())
         );
         assert_eq!(
-            evaluate_checked(r#""A🙂Б"[2]"#).unwrap(),
+            evaluate_checked(r#"_ = "A🙂Б"[2]"#).unwrap(),
             Value::Str("🙂".into())
         );
         assert_eq!(
-            evaluate_checked(r#""A🙂Б"[3]"#).unwrap(),
+            evaluate_checked(r#"_ = "A🙂Б"[3]"#).unwrap(),
             Value::Str("Б".into())
         );
     }
@@ -5694,16 +5834,16 @@ text[2]"#
     #[test]
     fn string_indexing_rejects_zero_and_out_of_bounds() {
         assert!(matches!(
-            check_source(r#""hello"[0]"#),
+            check_source(r#"_ = "hello"[0]"#),
             Err(Failure::Static(_))
         ));
-        assert!(evaluate_checked(r#""hello"[6]"#).is_err());
+        assert!(evaluate_checked(r#"_ = "hello"[6]"#).is_err());
     }
 
     #[test]
     fn string_indexing_requires_an_integer_index() {
         assert!(matches!(
-            check_source(r#""hello"["1"]"#),
+            check_source(r#"_ = "hello"["1"]"#),
             Err(Failure::Static(_))
         ));
     }
@@ -5722,7 +5862,7 @@ text[1] = "H""#
     #[test]
     fn list_indexing_still_works_after_string_indexing() {
         assert_eq!(
-            evaluate_checked("ls<int> values := list<int>{10, 20, 30}\nvalues[2]").unwrap(),
+            evaluate_checked("ls<int> values := list<int>{10, 20, 30}\n_ = values[2]").unwrap(),
             Value::Int(20)
         );
     }
@@ -5730,9 +5870,9 @@ text[1] = "H""#
     #[test]
     fn module_imports_and_invalid_arity() {
         assert!(check_source("import \"math\" as math\nimport \"types\" as types\nOutput(math:AbsoluteValue(types:Convert(\"-4\", int)))").is_ok());
-        assert!(check_source("import \"math\" as math\nmath:AbsoluteValue(1, 2)").is_err());
-        assert!(check_source("import \"types\" as types\ntypes:Convert(1)").is_err());
-        assert!(check_source("import \"types\" as types\ntypes:Unknown(1)").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:AbsoluteValue(1, 2)").is_err());
+        assert!(check_source("import \"types\" as types\n_ = types:Convert(1)").is_err());
+        assert!(check_source("import \"types\" as types\n_ = types:Unknown(1)").is_err());
     }
 }
 
@@ -5814,27 +5954,33 @@ mod union_type_tests {
     fn declared_and_current_type_of_are_available_in_types_module() {
         let declared = r#"import "types" as types
 int | str value := 10
-types:DeclaredTypeOf(value)"#;
+_ = types:DeclaredTypeOf(value)"#;
         let initial = r#"import "types" as types
 int | str value := 10
-types:CurrentTypeOf(value)"#;
+_ = types:CurrentTypeOf(value)"#;
         let updated = r#"import "types" as types
 int | str value := 10
 value = "Hi!"
-types:CurrentTypeOf(value)"#;
+_ = types:CurrentTypeOf(value)"#;
 
         assert_eq!(
-            evaluate_union_source(declared),
+            evaluate_checked(declared).unwrap(),
             Value::Type("int | str".into())
         );
-        assert_eq!(evaluate_union_source(initial), Value::Type("int".into()));
-        assert_eq!(evaluate_union_source(updated), Value::Type("str".into()));
+        assert_eq!(
+            evaluate_checked(initial).unwrap(),
+            Value::Type("int".into())
+        );
+        assert_eq!(
+            evaluate_checked(updated).unwrap(),
+            Value::Type("str".into())
+        );
     }
 
     #[test]
     fn declared_type_of_requires_a_variable() {
         let source = r#"import "types" as types
-types:DeclaredTypeOf(10)"#;
+_ = types:DeclaredTypeOf(10)"#;
         assert!(check_source(source).is_err());
     }
 
@@ -5845,44 +5991,47 @@ function Echo(int | str value) -> int | str:
 	return int | str value
 int | str item := 42
 item = "answer"
-Echo(item)
+_ = Echo(item)
 "#;
 
         assert!(check_source(source).is_ok());
-        assert_eq!(evaluate_union_source(source), Value::Str("answer".into()));
+        assert_eq!(
+            evaluate_checked(source).unwrap(),
+            Value::Str("answer".into())
+        );
     }
 
     #[test]
     fn union_lists_accept_each_declared_member() {
         let source = r#"
 ls<int | str> values := list<int | str>{1, "two", 3}
-Includes(values, "two")
+_ = Includes(values, "two")
 "#;
 
         assert!(check_source(source).is_ok());
-        assert_eq!(evaluate_union_source(source), Value::Bool(true));
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Bool(true));
     }
 
     #[test]
     fn union_lists_return_union_element_types() {
         let source = r#"
 ls<int | str> values := list<int | str>{1, "two"}
-values[2]
+_ = values[2]
 "#;
 
         assert!(check_source(source).is_ok());
-        assert_eq!(evaluate_union_source(source), Value::Str("two".into()));
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Str("two".into()));
     }
 
     #[test]
     fn union_of_list_types_can_be_indexed_and_measured() {
         let source = r#"
 ls<int> | ls<str> values := list<int>{1, 2}
-Length(values)
+_ = Length(values)
 "#;
 
         assert!(check_source(source).is_ok());
-        assert_eq!(evaluate_union_source(source), Value::Int(2));
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Int(2));
     }
 
     #[test]
@@ -5912,13 +6061,13 @@ values[1] = "text"
         let accepted = r#"
 function Echo(int | str value) -> int | str:
 	return int | str value
-Echo("text")
+_ = Echo("text")
 "#;
         let rejected = r#"
 function Number(int value) -> int:
 	return int value
 int | str item := "text"
-Number(item)
+_ = Number(item)
 "#;
 
         assert!(check_source(accepted).is_ok());
@@ -5943,11 +6092,11 @@ function Check() -> bool:
 		return bool true
 	else:
 		return bool false
-Check()
+_ = Check()
 "#;
 
         assert!(check_source(source).is_ok());
-        assert_eq!(evaluate_union_source(source), Value::Bool(true));
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Bool(true));
     }
 
     #[test]
@@ -5960,11 +6109,11 @@ function Check() -> bool:
 		return bool true
 	else:
 		return bool false
-Check()
+_ = Check()
 "#;
 
         assert!(check_source(source).is_ok());
-        assert_eq!(evaluate_union_source(source), Value::Bool(false));
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Bool(false));
     }
 
     #[test]
@@ -5977,11 +6126,11 @@ function Check() -> bool:
 		return bool true
 	else:
 		return bool false
-Check()
+_ = Check()
 "#;
 
         assert!(check_source(source).is_ok());
-        assert_eq!(evaluate_union_source(source), Value::Bool(false));
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Bool(false));
     }
 
     #[test]
@@ -6003,22 +6152,6 @@ false
                 ..
             })
         ));
-    }
-
-    fn evaluate_union_source(source: &str) -> Value {
-        let program = match check_source(source) {
-            Ok(program) => program,
-            Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
-            Err(Failure::Syntax(error)) => panic!("Syntax error: {:?}", error),
-            Err(Failure::Runtime(error)) => panic!("Runtime error: {:?}", error),
-        };
-        let mut interpreter = Interpreter::new();
-        let (last, previous) = program.split_last().expect("Non-empty program");
-        interpreter.execute_block(previous).unwrap();
-        match &last.kind {
-            Statement::Expression(expr) => interpreter.evaluate(expr).unwrap(),
-            _ => panic!("Last statement must be an expression"),
-        }
     }
 }
 
@@ -6318,5 +6451,170 @@ mod indentation_syntax_tests {
                 .any(|e| e.message.contains("A -> B -> C -> A")),
             "{errors:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod result_tests {
+    use super::*;
+
+    fn errors(source: &str) -> Vec<Diagnostic> {
+        match check_source(source) {
+            Err(Failure::Static(errors)) => errors,
+            _ => panic!("Expected static errors in {source}"),
+        }
+    }
+
+    #[test]
+    fn typed_functions_preserve_their_returned_values() {
+        for (ty, literal, expected) in [
+            ("int", "42", Value::Int(42)),
+            ("flt", "2.5", Value::Flt(2.5)),
+            ("bool", "false", Value::Bool(false)),
+            ("str", "\"hi\"", Value::Str("hi".into())),
+            ("none", "null", Value::Null),
+        ] {
+            let source = format!("function F() -> {ty}:\n\treturn {ty} {literal}\n_ = F()");
+            assert_eq!(evaluate_checked(&source).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn standalone_values_require_explicit_discard() {
+        for (setup, expression) in [
+            ("", "42"),
+            ("", "null"),
+            ("int x := 1\n", "x"),
+            ("function F() -> int:\n\treturn int 1\n", "F() + 10"),
+            ("function F() -> none:\n\treturn none null\n", "F()"),
+            ("", "Length(\"hi\")"),
+            ("", "Input(\"\")"),
+            ("import \"math\" as m\n", "m:Average(list<int>{1})"),
+            ("import \"strings\" as s\n", "s:ToUpperCase(\"hi\")"),
+            ("import \"types\" as t\n", "t:CurrentTypeOf(null)"),
+        ] {
+            let diagnostics = errors(&format!("{setup}{expression}"));
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+            assert_eq!(diagnostics[0].message, UNUSED_VALUE);
+            assert_eq!(diagnostics[0].span.length, expression.len());
+            assert!(check_source(&format!("{setup}_ = {expression}")).is_ok());
+        }
+    }
+
+    #[test]
+    fn no_value_is_rejected_in_every_value_context() {
+        let def = "function Display() -|:\n\tOutput(1)\n";
+        for usage in [
+            "int x := Display()\nOutput(x)",
+            "int x := 1\nx = Display()",
+            "Output(Display())",
+            "if Display():\n\tOutput(1)",
+            "loop Display():\n\tbreak",
+            "_ = Display() + 1",
+            "_ = !Display()",
+            "_ = list<int>{Display()}",
+            "_ = list<int>{1}[Display()]",
+            "_ = Display()[1]",
+            "loop x in Display():\n\tOutput(x)",
+            "Output(\"#{Display()}\")",
+            "Output(\"#{\"#{Display()}\"}\")",
+            "_ = false && Display()",
+            "function F() -> none:\n\treturn none Display()\n_ = F()",
+        ] {
+            let diagnostics = errors(&format!("{def}{usage}"));
+            assert!(
+                diagnostics.iter().any(|d| d.message == VALUE_REQUIRED),
+                "{usage}: {diagnostics:?}"
+            );
+            assert!(!diagnostics.iter().any(|d| d.message == UNUSED_VALUE));
+        }
+        for source in ["_ = Output(1)".to_string(), format!("{def}_ = Display()")] {
+            assert_eq!(errors(&source)[0].message, NOTHING_TO_DISCARD);
+        }
+        let diagnostics = errors("Output(Length(Output(0)))");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.column, 15);
+    }
+
+    #[test]
+    fn underscore_is_exclusive_to_discard_statements() {
+        for source in [
+            "_ := 1",
+            "int _ := 1",
+            "Output(_)",
+            "int x := _",
+            "example = _",
+            "_ = 1 + _",
+            "_()",
+            "(_)=1",
+            "_[1] = 3",
+            "import \"math\" as _",
+            "function _() -|:\n\tOutput(1)",
+            "function F(int _) -|:\n\tOutput(1)",
+            "loop _ in list<int>{1}:\n\tbreak",
+            "import \"math\" as m\n_ = m:_()",
+            "Output(\"#{_}\")",
+        ] {
+            assert!(
+                matches!(parse_source(source), Err(Failure::Syntax(ref d)) if d.message == DISCARD_POSITION),
+                "{source}"
+            );
+        }
+        assert!(matches!(
+            parse_source("function = _"),
+            Err(Failure::Syntax(_))
+        ));
+        assert!(check_source("int _item := 4\n_ = _item\n_ = _item").is_ok());
+    }
+
+    #[test]
+    fn markers_and_returns_follow_the_function_contract() {
+        for marker in ["- |", "-/* gap */|", "-| int", "-> -|"] {
+            assert!(parse_source(&format!("function F() {marker}:\n\tOutput(1)")).is_err());
+        }
+        for source in [
+            "-| x := 1",
+            "function F(-| x) -|:\n\tOutput(x)",
+            "_ = ls<-|>",
+        ] {
+            assert!(parse_source(source).is_err(), "{source}");
+        }
+        assert!(matches!(
+            parse_source("function F() -|:\n\treturn"),
+            Err(Failure::Syntax(_))
+        ));
+        let nested =
+            "function F() -|:\n\tloop true:\n\t\tif false:\n\t\t\treturn none null\n\t\tbreak\nF()";
+        assert!(errors(nested).iter().any(|d| d.message == NO_VALUE_RETURN));
+        assert!(
+            errors("function F() -> int:\n\tif true:\n\t\treturn int 1\n_ = F()")
+                .iter()
+                .any(|d| d.message.contains("every path"))
+        );
+    }
+
+    #[test]
+    fn unchecked_interpreter_distinguishes_no_value_and_null() {
+        let source = "function F() -|:\n\t_ = 1\nfunction N() -> none:\n\treturn none null";
+        let program = parse_source(source).ok().unwrap();
+        let mut vm = Interpreter::new();
+        vm.run(&program).unwrap();
+        let span = Span::new(1, 1, 1);
+        assert!(matches!(
+            vm.call("F", &[], span).unwrap(),
+            FunctionResult::NoValue
+        ));
+        assert!(matches!(
+            vm.call("N", &[], span).unwrap(),
+            FunctionResult::Value(Value::Null)
+        ));
+        for (usage, message) in [
+            ("_ = F()", NOTHING_TO_DISCARD),
+            ("Output(F())", VALUE_REQUIRED),
+            ("N()", UNUSED_VALUE),
+        ] {
+            let program = parse_source(usage).ok().unwrap();
+            assert_eq!(vm.run(&program).unwrap_err().message, message);
+        }
     }
 }
