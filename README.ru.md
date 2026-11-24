@@ -24,7 +24,7 @@
 
 ---
 
-[Руководство по β](docs/Guide.ru.md) · [Переход с 0.2 на 0.3](MIGRATION.ru.md)
+[Руководство по β](docs/Guide.ru.md) · [Главы по задачам (EN)](docs/README.md) · [План развития](ROADMAP.ru.md) · [Переход с 0.2 на 0.3](MIGRATION.ru.md)
 
 ## Почему Epholang?
 
@@ -178,7 +178,7 @@ Output("Можно преобразовать: #{types:IsConvertible("42", int)}
 
 | Модуль    | Функции                                                                                                                    |
 | --------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `strings` | `Trim`, `Replace`, `Split`, `StartsWith`, `EndsWith`, `ToLowerCase`, `ToUpperCase`, `Capitalize`, `Repeat`                 |
+| `strings` | `Trim`, `Replace`, `Split`, `StartsWith`, `EndsWith`, `ToLowerCase`, `ToUpperCase`, `Capitalize`, `Repeat`, `AlphabetRange`, `IsAsciiUppercase`, `IsAsciiLowercase` |
 | `math`    | `AbsoluteValue`, `SquareRoot`, `Floor`, `Ceil`, `Round`, `Minimum`, `Maximum`, `Clamp`, `Sum`, `Average`, `RandomInterval` |
 | `types`   | `Convert`, `IsConvertible`, `DeclaredTypeOf`, `CurrentTypeOf`                                                              |
 
@@ -197,6 +197,10 @@ Output("Можно преобразовать: #{types:IsConvertible("42", int)}
 | `Runtime error` | Во время выполнения  | Первая ошибка           |
 
 Диагностика показывает файл, строку, столбец и фрагмент кода. У каждого пользовательского объявления должна быть синтаксическая ссылка после объявления. Правило распространяется на параметры, переменные циклов, алиасы модулей и имена с `_`. Корректное присваивание и ссылка в недостижимой ветке считаются использованием.
+
+## Переход на 0.3.0 Beta
+
+В программе для 0.2 сначала обновите отступы блоков и сигнатуры функций. Затем проверьте самостоятельные выражения и места, где вызывающий код ожидает значение от `Output`. В [руководстве по миграции](MIGRATION.ru.md) старый и новый синтаксис показаны рядом. В [главе о диагностике (EN)](docs/Diagnostics.md) разобраны сообщения, которые может выдать проверка обновлённого файла.
 
 ## Переход с 0.1.0
 

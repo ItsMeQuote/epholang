@@ -21,6 +21,13 @@ labels = Remove(labels, 2)
 Output("#{labels}\n")
 ```
 
+```text
+true
+list{first, last}
+```
+
+The first test finds the empty string at position 2. Inserting appends a third element. Removing position 2 then leaves the original first element and the appended one.
+
 ## `strings`
 
 | Function | Result | Arguments and behavior |
@@ -43,6 +50,14 @@ Output("#{strings:AlphabetRange("D", "A")}\n")
 Output("#{strings:IsAsciiLowercase("abc")}\n")
 ```
 
+```text
+Beta
+DCBA
+true
+```
+
+Trimming removes both copies of the dash at each end. The endpoints D and A have the same case, so the descending range includes them both. The ASCII predicate accepts every character of the final input.
+
 ## `math`
 
 | Function | Result | Arguments and behavior |
@@ -63,6 +78,14 @@ Output("#{math:Clamp(14, 0, 10)}\n")
 Output("#{math:Average(list<int>{1, 2})}\n")
 Output("#{math:RandomInterval(7, 7)}\n")
 ```
+
+```text
+10
+1.5
+7
+```
+
+The input 14 exceeds the upper bound, so clamping returns 10. The integer list has an exactly representable mean. With equal bounds, the inclusive random interval has only one possible result.
 
 ## `types`
 
@@ -91,3 +114,12 @@ if types:IsConvertible(input, int):
 	Output("#{result + 1}\n")
 Output("#{types:Convert("café", ls<str>)}\n")
 ```
+
+```text
+43
+list{c, a, f, é}
+```
+
+The conversion produces the integer 42, so adding one is integer arithmetic. The second conversion yields four strings, one per Unicode scalar value.
+
+For complete examples that combine these calls, see [standard library in practice](Library-Recipes.md).

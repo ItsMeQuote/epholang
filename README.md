@@ -24,7 +24,7 @@
 
 ---
 
-[Installation](docs/Installation.md) · [Tutorial](docs/Tutorial.md) · [Language reference](docs/Language-Reference.md) · [Standard library](docs/Standard-Library.md) · [CLI and VS Code](docs/CLI-Reference.md) · [Migration from 0.2 to 0.3](MIGRATION.md)
+[Beta handbook](docs/README.md) · [Roadmap](ROADMAP.md) · [Installation](docs/Installation.md) · [Tutorial](docs/Tutorial.md) · [Language reference](docs/Language-Reference.md) · [Standard library](docs/Standard-Library.md) · [CLI and VS Code](docs/CLI-Reference.md) · [Migration from 0.2 to 0.3](MIGRATION.md)
 
 ## Why Epholang?
 
@@ -186,7 +186,7 @@ Output("Convertible: #{types:IsConvertible("42", int)}\n")
 
 | Module    | Functions                                                                                                                  |
 | --------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `strings` | `Trim`, `Replace`, `Split`, `StartsWith`, `EndsWith`, `ToLowerCase`, `ToUpperCase`, `Capitalize`, `Repeat`                 |
+| `strings` | `Trim`, `Replace`, `Split`, `StartsWith`, `EndsWith`, `ToLowerCase`, `ToUpperCase`, `Capitalize`, `Repeat`, `AlphabetRange`, `IsAsciiUppercase`, `IsAsciiLowercase` |
 | `math`    | `AbsoluteValue`, `SquareRoot`, `Floor`, `Ceil`, `Round`, `Minimum`, `Maximum`, `Clamp`, `Sum`, `Average`, `RandomInterval` |
 | `types`   | `Convert`, `IsConvertible`, `DeclaredTypeOf`, `CurrentTypeOf`                                                              |
 
@@ -211,6 +211,10 @@ Epholang distinguishes three error stages:
 Diagnostics point to the affected file, line, column, and source span.
 
 Every user declaration needs a syntactic reference after it is declared. This includes parameters, loop variables, import aliases and names starting with `_`. A valid assignment counts as a reference, as does a reference in a branch that will never execute.
+
+## Upgrading to 0.3.0 Beta
+
+For 0.2 source, migrate block indentation and function signatures first. Then review every standalone expression and every caller that expected a value from `Output`. The [migration guide](MIGRATION.md) pairs old and new syntax. The [diagnostics guide](docs/Diagnostics.md) explains the messages you may encounter when checking the migrated file.
 
 ## From 0.1.0 to 0.2.0
 

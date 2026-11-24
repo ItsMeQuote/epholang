@@ -12,6 +12,8 @@ Program execution starts at the top level. Imports go first. Declare functions a
 
 ## Values and declarations
 
+For examples of nullable values, parameter types and block scope, see [types and scope](Types-and-Scope.md).
+
 | Type | Example | Purpose |
 | --- | --- | --- |
 | `int` | `42` | Signed 64-bit integer |
@@ -57,6 +59,8 @@ Arithmetic uses matching numeric types. Use `types:Convert` to change types expl
 
 ## Lists and strings
 
+For a complete queue update, loop snapshot and delimited-record example, see [lists and Unicode text](Collections-and-Text.md).
+
 Use `ls<T>` in declarations and `list<T>{...}` in expressions. Lists may have union element types, such as `ls<int | str>`. Read or replace a list element by its one-based `int` index. Indices must be within bounds. An `Insert` index can also be one past the end. `Insert` and `Remove` return updated lists, so assign their results if you want the variable to hold the updated list.
 
 Strings can also be read with one-based indexing. It returns one Unicode scalar value as a string. A displayed character may comprise several scalar values. String positions are read-only.
@@ -74,6 +78,8 @@ Output("café"[4])
 ```
 
 ## Functions and results
+
+For a search that can return either a position or `null`, see [designing functions and using their results](Functions-and-Results.md).
 
 Define functions at the top level with typed parameters. A function can call another user function that was declared earlier. Default arguments, direct recursion and indirect recursion are rejected.
 
@@ -99,6 +105,8 @@ Here `Report()` produces `null` each time and writes a message. `Finish()` is al
 
 ## Control flow
 
+For worked examples of short-circuit guards, search and backwards traversal, see [choosing branches and loops](Control-Flow.md).
+
 Conditions must have type `bool`. Use `if`, optional `else if` branches and an optional `else`. A condition loop evaluates its condition before each iteration. A list loop visits the elements in order. `skip` advances the nearest enclosing loop and `break` exits it.
 
 ```epholang
@@ -112,5 +120,7 @@ loop value in values:
 ```
 
 ## Diagnostics
+
+See [diagnose a program](Diagnostics.md) to reproduce a message and check a repair.
 
 Use `epholang check file.epho` to catch errors before execution. Lexical and syntax errors include malformed literals, operators and indentation. Static errors include type mismatches, unused symbols, missing returns and discarded values without `_ =`. Runtime errors depend on execution and values, such as an out-of-bounds index computed from input or a failed conversion. The diagnostic shows the file and source position. For editor and formatter behavior, see [CLI and VS Code](CLI-Reference.md).

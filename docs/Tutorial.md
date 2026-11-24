@@ -66,3 +66,5 @@ The prompt and response are strings. Check convertibility before asking for an i
 Try putting a standalone `Grade(80)` at the end of `scores.epho`. `check` reports an unused result. Replace it with `Output(Grade(80))` to print the result or `_ = Grade(80)` to discard it.
 
 Use `epholang format scores.epho` to format the file. Use `format --check` to check formatting without writing. For another runnable program, choose a file from [examples](../examples/). Search the [language reference](Language-Reference.md) for operators, declarations and loops, or the [standard library](Standard-Library.md) for function contracts.
+
+Continue with [functions and results](Functions-and-Results.md) to write a search function, or explore the [handbook by task](README.md).

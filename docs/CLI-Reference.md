@@ -30,3 +30,5 @@ Download the version-matched VSIX and interpreter from the same [release](https:
 The extension supplies syntax highlighting, snippets, and document formatting via the CLI. It enables format-on-save and configures tabs for Epholang files. If the configured CLI cannot be started, set `epholang.executablePath` to the full path, including `.exe` on Windows. In the command palette, use **Format Document**. Run `epholang check` from a terminal for complete language diagnostics.
 
 For platform downloads and checksum verification, see [installation](Installation.md).
+
+To reproduce and repair common static and runtime errors, follow the [diagnostics guide](Diagnostics.md).
