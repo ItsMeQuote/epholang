@@ -51,6 +51,13 @@ assert(!match('keyword.control.epholang', 'otherwise'));
 assert(match('punctuation.section.block.epholang', 'if ready:'));
 assert(!match('punctuation.section.block.epholang', 'math:Sum('));
 assert(match('punctuation.separator.return-type.epholang', '->'));
+assert(match('punctuation.separator.return-type.epholang', '-|'));
+assert(match('keyword.operator.discard.epholang', '_ = 42'));
+assert(!match('keyword.operator.discard.epholang', '_ := 42'));
+assert(!match('variable.other.readwrite.epholang', '_'));
+assert(match('variable.other.readwrite.epholang', '_value'));
+assert(snippets['Function without a result'].body[0].endsWith('-|:'));
+assert(snippets['Discard result'].body[0].startsWith('_ = '));
 assert.equal(snippets.Function.body[1][0], '\t');
 assert.equal(snippets['If / else'].body[2], 'else:');
 assert(!match('keyword.control.epholang', 'cycle'));
@@ -112,8 +119,8 @@ if (executable) {
       },
     };
   }
-  const source = 'if true :\r\n\tOutput("🙂")\r\n';
-  const formatted = 'if true:\n\tOutput("🙂")\n';
+  const source = 'function F()-| :\r\n\tif true :\r\n\t\tOutput("🙂");_=42\r\nF()\r\n';
+  const formatted = 'function F() -|:\n\tif true:\n\t\tOutput("🙂")\n\t\t_ = 42\nF()\n';
   const edits = await provider.provideDocumentFormattingEdits(document(source), {}, token);
   const [{ range, text }] = edits;
   assert.equal(source.slice(0, range.start) + text + source.slice(range.end), formatted);

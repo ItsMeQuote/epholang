@@ -69,5 +69,21 @@
       "else:",
       "\t$0"
     ]
+  },
+  "Function without a result": {
+    "prefix": "function-no-result",
+    "description": "Declare a function that finishes at the end of its body",
+    "body": [
+      "function ${1:Display}() -|:",
+      "\tOutput(${2:\"Hello\"})",
+      "$0"
+    ]
+  },
+  "Discard result": {
+    "prefix": "discard",
+    "description": "Evaluate an expression and discard its value",
+    "body": [
+      "_ = ${1:expression}"
+    ]
   }
 }

@@ -72,3 +72,17 @@ test("one-line interpolation stops highlighting at a physical line break", async
   assert(has(lines[1], "Output", "support.function.builtin"));
   assert(!has(lines[1], "Output", "meta.interpolation"));
 });
+
+test("function results and discard have distinct scopes", async () => {
+  const lines = await scopes([
+    "function F() -|:", "\t_ = 1", "function _N() -> none:",
+    "\treturn none null", "_item = _", "_ := 1", "function _() -|:",
+  ].join("\n"));
+  assert(has(lines[0], "-|", "punctuation.separator.return-type"));
+  assert(has(lines[1], "_", "keyword.operator.discard"));
+  assert(has(lines[2], "_N", "entity.name.function.definition"));
+  assert(has(lines[2], "->", "punctuation.separator.return-type"));
+  assert(has(lines[3], "return", "keyword.control"));
+  assert(has(lines[4], "_item", "variable.other.readwrite"));
+  for (const index of [4, 5, 6]) assert(has(lines[index], "_", "invalid.illegal.discard"));
+});

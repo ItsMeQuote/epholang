@@ -91,7 +91,15 @@
       "patterns": [
         {
           "name": "punctuation.separator.return-type.epholang",
-          "match": "->"
+          "match": "->|-\\|"
+        },
+        {
+          "name": "keyword.operator.discard.epholang",
+          "match": "\\b_\\b(?=[\\t ]*(?:/\\*.*?\\*/[\\t ]*)*=(?!=))"
+        },
+        {
+          "name": "invalid.illegal.discard.epholang",
+          "match": "\\b_\\b"
         },
         {
           "name": "punctuation.section.block.epholang",
@@ -107,7 +115,7 @@
         },
         {
           "name": "meta.function.declaration.epholang",
-          "match": "\\b(function)(\\s+)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "match": "\\b(function)(\\s+)((?!_\\b)[A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": {
               "name": "storage.type.function.epholang"
@@ -119,7 +127,7 @@
         },
         {
           "name": "meta.import.alias.epholang",
-          "match": "\\b(as)(\\s+)([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "match": "\\b(as)(\\s+)((?!_\\b)[A-Za-z_][A-Za-z0-9_]*)\\b",
           "captures": {
             "1": {
               "name": "keyword.control.import.epholang"
@@ -131,7 +139,7 @@
         },
         {
           "name": "meta.function-call.module.epholang",
-          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(:)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "match": "\\b((?!_\\b)[A-Za-z_][A-Za-z0-9_]*)(:)((?!_\\b)[A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": {
               "name": "variable.other.module.epholang"
@@ -166,7 +174,7 @@
         },
         {
           "name": "entity.name.function.call.epholang",
-          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+          "match": "\\b(?!_\\b)[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
         },
         {
           "name": "constant.numeric.float.epholang",
@@ -182,7 +190,7 @@
         },
         {
           "name": "variable.other.readwrite.epholang",
-          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+          "match": "\\b(?!_\\b)[A-Za-z_][A-Za-z0-9_]*\\b"
         },
         {
           "name": "punctuation.epholang",

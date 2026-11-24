@@ -6,6 +6,9 @@ All notable changes to Epholang are recorded here.
 
 ## Unreleased
 
+- Functions declared with `-|` finish at the end of their body and forbid `return`. The built-in `Output` now uses this contract. Functions returning `none` still produce the value `null`.
+- Breaking change: a standalone expression that produces a value is a static error. Use the value or explicitly discard it with `_ = expression`. A lone `_` is reserved for this statement.
+
 - Block headers use a colon followed by one tab per nesting level. Conditions use `else if` and `else`.
 - Variable and parameter types precede their names. Function headers use `->` before the result type. Return statements still carry an explicit type.
 - Strings accept ordinary quotes and nested expressions in single-line interpolation.
