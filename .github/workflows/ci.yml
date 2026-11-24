@@ -96,6 +96,9 @@ jobs:
       - name: Smoke test - Loops
         run: cargo run --locked -- run examples/03_loops.epho
 
+      - name: Smoke test - Lists
+        run: cargo run --locked -- run examples/04_lists.epho
+
       - name: Smoke test - Strings
         run: cargo run --locked -- run examples/05_strings.epho
 
@@ -104,6 +107,14 @@ jobs:
 
       - name: Smoke test - Types
         run: cargo run --locked -- run examples/07_types.epho
+
+      - name: Check EphoFMT on all examples
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for example in examples/*.epho; do
+            ./target/debug/epholang format --check "$example"
+          done
 
   vscode:
     name: VS Code extension
@@ -124,8 +135,17 @@ jobs:
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build EphoFMT CLI
+        working-directory: .
+        run: cargo build --locked
+
       - name: Install locked dependencies
         run: npm ci
 
       - name: Validate VS Code extension
+        env:
+          EPHOLANG_BIN: ${{ github.workspace }}/target/debug/epholang
         run: npm test

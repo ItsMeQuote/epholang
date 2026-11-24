@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ItsMeQuote/epholang/releases"><img src="https://img.shields.io/badge/версия-0.2.0%20(Alpha)-blue" alt="Версия"></a>
+  <a href="https://github.com/ItsMeQuote/epholang/releases"><img src="https://img.shields.io/badge/версия-0.3.0%20(Beta)-blue" alt="Версия"></a>
   <img src="https://img.shields.io/badge/реализация-Rust-orange" alt="Rust">
   <a href="https://github.com/ItsMeQuote/epholang/stargazers"><img src="https://img.shields.io/github/stars/ItsMeQuote/epholang" alt="Звёзды"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ItsMeQuote/epholang" alt="Лицензия"></a>
@@ -23,6 +23,8 @@
 <p align="center"><a href="README.md">English</a> &bull; <strong>Русский</strong></p>
 
 ---
+
+[Переход с 0.2 на 0.3](MIGRATION.ru.md)
 
 ## Почему Epholang?
 
@@ -45,14 +47,12 @@
 ```epholang
 import "math" as math
 
-function Square(value int) int {
-    return int value * value
-}
+function Square(int value) -> int:
+	return int value * value
 
-numbers ls<int> := list<int>{1, 2, 3}
-loop number in numbers {
-    Output("#{number} в квадрате = #{Square(number)}\n")
-}
+ls<int> numbers := list<int>{1, 2, 3}
+loop number in numbers:
+	Output("#{number} в квадрате = #{Square(number)}\n")
 
 Output("Сумма = #{math:Sum(numbers)}\n")
 ```
@@ -74,15 +74,15 @@ Output("Сумма = #{math:Sum(numbers)}\n")
 
 ### Скачать или собрать
 
-Готовый Windows-файл и расширение VS Code смотрите в [Releases](https://github.com/ItsMeQuote/epholang/releases). Для самостоятельной сборки установите стабильный набор инструментов [Rust](https://www.rust-lang.org/tools/install):
+Соберите интерпретатор из той же копии исходников, чтобы запустить примеры из этого руководства. Опубликованные сборки и соответствующие расширения доступны в [Releases](https://github.com/ItsMeQuote/epholang/releases). Для сборки потребуется стабильный [Rust](https://www.rust-lang.org/tools/install).
 
 ```sh
 git clone https://github.com/ItsMeQuote/epholang.git
 cd epholang
-cargo build --release
+cargo build --release --locked
 ```
 
-Исполняемый файл будет находиться в `target/release/epholang` (Windows: `target\release\epholang.exe`). Для сборки конкретной версии используйте соответствующий тег с исходниками **0.2.0**.
+Исполняемый файл будет находиться в `target/release/epholang` (Windows: `target\release\epholang.exe`). Для сборки конкретной версии используйте соответствующий тег с исходниками.
 
 ### Командная строка
 
@@ -91,6 +91,8 @@ epholang run program.epho      # проверить и запустить
 epholang check program.epho    # только статическая проверка
 epholang tokens program.epho   # показать токены лексера
 epholang parse program.epho    # показать синтаксическое дерево
+epholang format program.epho   # форматировать код через EphoFMT
+epholang format --check program.epho # проверить форматирование без изменений
 ```
 
 Пример можно запустить через Cargo, не добавляя программу в `PATH`:
@@ -101,7 +103,9 @@ cargo run -- run examples/03_loops.epho
 
 ### VS Code
 
-Установите `epholang-language-0.2.0.vsix` через **Extensions → … → Install from VSIX...** или командой `code --install-extension epholang-language-0.2.0.vsix` из папки с файлом. Расширение добавляет подсветку синтаксиса и сниппеты, но не является компилятором или языковым сервером.
+Используйте расширение и CLI одной версии. Для запуска расширения из этой копии в **Extension Development Host** передайте в `--extensionDevelopmentPath` полный путь к `editors/vscode`. Если CLI отсутствует в `PATH`, укажите путь к нему в настройке `epholang.executablePath`.
+
+Для файлов Epholang по умолчанию включены табы и форматирование при сохранении. Команда VS Code **Форматировать документ** также запускает EphoFMT. Расширение подсвечивает маркер `-|` и операцию `_ =`. EphoFMT приводит `_=F()` к виду `_ = F()`. Команда `check` проверяет, есть ли у `F()` результат.
 
 ## Краткий обзор языка
 
@@ -110,14 +114,37 @@ cargo run -- run examples/03_loops.epho
 | Числа       | `int` (`i64`) и `flt` (`f64`), без неявного смешивания                    |
 | Другие типы | `str`, `bool`, `none` и значения типов (`type`)                           |
 | Списки      | `ls<int>`, `ls<flt>`, `ls<str>`, `ls<bool>`, `ls<none>` — без вложенности |
-| Переменные  | `age int := 20` и `age = 21`                                              |
-| Функции     | `function Square(x int) int { return int x * x }`                         |
-| Условия     | `if ... { } otherwise if ... { } otherwise { }`                           |
-| Циклы       | `loop условие { }` или `loop элемент in список { }`                       |
+| Переменные  | `int age := 20` и `age = 21`                                              |
+| Функции     | `function Square(int x) -> int:`                         |
+| Условия     | `if …: / else if …: / else:`                           |
+| Циклы       | `loop условие:` или `loop элемент in список:`                       |
 | Строки      | `Output("Привет, #{name}!\n")`                                            |
 | Комментарии | `/* блочные комментарии /* можно вкладывать */ */`                        |
 
-**Функции** требуют явных типов параметров и результата, типизированного `return` и возврата значения на всех путях. Параметров по умолчанию нет. Функции объявляются на верхнем уровне до использования.
+**Блоки** начинаются на строке после заголовка с `:`. Каждый уровень добавляет один таб. Пустые строки и строки, состоящие из комментариев, не задают уровень. Если код следует сразу за закрытием многострочного комментария, его отступ берётся со строки, на которой комментарий начался. В строках продолжения внутри вызовов, индексов и списков также используются табы. EphoFMT сохраняет многострочные списки и добавляет запятую после последнего элемента.
+
+**Строки** поддерживают вложенную интерполяцию, например `"Результат: #{strings:Repeat("Привет, #{name}", 2)}"`. Каждая интерполяция занимает одну физическую строку. В тексте строк доступны escape-последовательности, в том числе `\n` и `\"`.
+
+**Функции** объявляются на верхнем уровне до использования. Тип каждого параметра обязателен. Параметры по умолчанию и рекурсия запрещены. В функции `-> T` каждый путь выполнения должен завершиться типизированным `return T выражение`. Маркер `-|` разрешён только в заголовке функции. Такая функция завершается при достижении конца тела, и любой `return` внутри неё запрещён.
+
+```epholang
+function Display(str message) -|:
+	Output(message)
+
+function Find() -> none:
+	return none null
+
+Display("Ready\n")
+none result := Find()
+Output(result)
+_ = Find()
+```
+
+В этом примере `Find()` возвращает значение `null` типа `none`. Его можно сохранить, вывести или явно отбросить. У `Display()` и `Output()` результата нет. Их вызывают отдельной инструкцией. Попытка присвоить их результат, передать его аргументом или выполнить `_ = Display("Ready")` вызывает статическую ошибку.
+
+**Использование результата.** Любое выражение со значением нужно использовать. Например, отдельные строки `42`, `result` и `Length("abc") + 1` вызывают ошибку. Если нужно лишь выполнить вычисление, напишите `_ = выражение`. Правая часть выполняется один раз со всеми побочными эффектами и ошибками. Одиночный `_` допустим только слева в этой инструкции. Она не создаёт переменную. Записи `_ := значение` и `result = _` ошибочны. Операции удаления объявлений через `_` в языке нет. Имена вроде `_item` подчиняются обычным правилам.
+
+**Union-типы** записываются через `|`. Например, `int | str` допускает целое число или строку, а `ls<int | str>` позволяет хранить в списке элементы обоих типов.
 
 **Списки** индексируются с **1**. Индексы должны иметь тип `int`. `Insert` и `Remove` возвращают новые списки. `Output()` и `Input()` не добавляют перевод строки автоматически — для этого нужен `\n`.
 
@@ -133,7 +160,6 @@ cargo run -- run examples/03_loops.epho
 | `Includes(container, value)` | Проверка подстроки или элемента списка     |
 | `Insert(list, index, value)` | Новый список со вставленным элементом      |
 | `Remove(list, index)`        | Новый список без элемента                  |
-| `TypeOf(value)`              | Получение типа значения                    |
 
 ## Стандартные модули
 
@@ -147,16 +173,16 @@ import "types" as types
 Output(strings:ToUpperCase("hello"))
 Output("\n")
 Output("Случайное число: #{math:RandomInterval(1, 6)}\n")
-Output("Можно преобразовать: #{types:IsConvertible(\"42\", int)}\n")
+Output("Можно преобразовать: #{types:IsConvertible("42", int)}\n")
 ```
 
 | Модуль    | Функции                                                                                                                    |
 | --------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `strings` | `Trim`, `Replace`, `Split`, `StartsWith`, `EndsWith`, `ToLowerCase`, `ToUpperCase`, `Capitalize`, `Repeat`                 |
 | `math`    | `AbsoluteValue`, `SquareRoot`, `Floor`, `Ceil`, `Round`, `Minimum`, `Maximum`, `Clamp`, `Sum`, `Average`, `RandomInterval` |
-| `types`   | `Convert`, `IsConvertible`                                                                                                 |
+| `types`   | `Convert`, `IsConvertible`, `DeclaredTypeOf`, `CurrentTypeOf`                                                                                                 |
 
-`math:RandomInterval(minimum, maximum)` возвращает `int` с **обеими включёнными границами**; функция не предназначена для криптографии. Для `types:Convert(value, targetType)` и `types:IsConvertible(value, targetType)` требуется литерал типа `int`, `flt`, `str` или `bool`. Описание аргументов и пограничных случаев — в [Wiki](https://github.com/ItsMeQuote/epholang/wiki).
+`math:RandomInterval(minimum, maximum)` возвращает `int` с **обеими включёнными границами**; функция не предназначена для криптографии. Для `types:Convert(value, targetType)` и `types:IsConvertible(value, targetType)` требуется литерал типа `int`, `flt`, `str`, `bool` или `ls<str>`. Описание аргументов и пограничных случаев — в [Wiki](https://github.com/ItsMeQuote/epholang/wiki).
 
 ## Ошибки, указывающие на проблему
 
@@ -170,7 +196,7 @@ Output("Можно преобразовать: #{types:IsConvertible(\"42\", int
 | `Static error`  | До запуска программы | Все обнаруженные ошибки |
 | `Runtime error` | Во время выполнения  | Первая ошибка           |
 
-Диагностика показывает файл, строку, столбец и фрагмент кода. Статическая проверка обнаруживает несовместимость типов, неиспользуемые переменные и отсутствие `return`.
+Диагностика показывает файл, строку, столбец и фрагмент кода. У каждого пользовательского объявления должна быть синтаксическая ссылка после объявления. Правило распространяется на параметры, переменные циклов, алиасы модулей и имена с `_`. Корректное присваивание и ссылка в недостижимой ветке считаются использованием.
 
 ## Переход с 0.1.0
 
@@ -180,7 +206,7 @@ Output("Можно преобразовать: #{types:IsConvertible(\"42\", int
 
 ## Текущие ограничения
 
-Union-типы, вложенные списки, пользовательские модули, обработка ошибок как значений, пользовательские типы и нативная компиляция не реализованы. Epholang пока не предназначен для замены промышленных языков программирования.
+Вложенные списки, пользовательские модули, обработка ошибок как значений, пользовательские типы и нативная компиляция не реализованы. Epholang пока не предназначен для замены промышленных языков программирования.
 
 ## О проекте
 

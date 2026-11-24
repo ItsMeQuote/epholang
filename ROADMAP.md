@@ -64,7 +64,7 @@ The following features are being considered for future versions. Their order and
 
 ### Type system
 
-- [ ] Union types.
+- [x] Union types.
 - [ ] Nested lists.
 - [ ] User-defined types.
 - [ ] Further improvements to type checking.

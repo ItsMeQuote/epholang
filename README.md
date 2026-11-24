@@ -13,16 +13,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ItsMeQuote/epholang/releases"><img src="https://img.shields.io/badge/version-0.2.0%20(Alpha)-blue" alt="Version"></a>
+  <a href="https://github.com/ItsMeQuote/epholang/releases"><img src="https://img.shields.io/badge/version-0.3.0%20(Beta)-blue" alt="Version"></a>
   <img src="https://img.shields.io/badge/implemented%20in-Rust-orange" alt="Rust">
   <a href="https://github.com/ItsMeQuote/epholang/stargazers"><img src="https://img.shields.io/github/stars/ItsMeQuote/epholang" alt="Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ItsMeQuote/epholang" alt="License"></a>
   <a href="https://github.com/ItsMeQuote/epholang/actions/workflows/ci.yml"><img src="https://github.com/ItsMeQuote/epholang/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-<p align="center"><strong>English</strong> &bull; <a href="README.ru.md">Русский</a></p>
+<p align="center"><strong>English</strong> &bull; <a href="README.ru.md">Russian</a></p>
 
 ---
+
+[Migration from 0.2 to 0.3](MIGRATION.md)
 
 ## Why Epholang?
 
@@ -45,14 +47,12 @@ Epholang is a **tree-walking interpreter** with a static checking pass before ex
 ```epholang
 import "math" as math
 
-function Square(value int) int {
-    return int value * value
-}
+function Square(int value) -> int:
+	return int value * value
 
-numbers ls<int> := list<int>{1, 2, 3}
-loop number in numbers {
-    Output("#{number} squared = #{Square(number)}\n")
-}
+ls<int> numbers := list<int>{1, 2, 3}
+loop number in numbers:
+	Output("#{number} squared = #{Square(number)}\n")
 
 Output("Sum = #{math:Sum(numbers)}\n")
 ```
@@ -76,14 +76,14 @@ Find seven ready-to-run programs in [`examples/`](examples/) and the extended la
 
 ### Download or build
 
-Download available executables and the VS Code extension from [Releases](https://github.com/ItsMeQuote/epholang/releases).
+Build the interpreter from the same source checkout to run the examples in this guide. Published builds and matching extensions are available from [Releases](https://github.com/ItsMeQuote/epholang/releases).
 
 To build from source, install a stable [Rust toolchain](https://www.rust-lang.org/tools/install):
 
 ```sh
 git clone https://github.com/ItsMeQuote/epholang.git
 cd epholang
-cargo build --release
+cargo build --release --locked
 ```
 
 The binary is located at `target/release/epholang` (Windows: `target\release\epholang.exe`).
@@ -97,6 +97,8 @@ epholang run program.epho      # statically check, then run
 epholang check program.epho    # static checks only
 epholang tokens program.epho   # inspect lexer tokens
 epholang parse program.epho    # inspect the syntax tree
+epholang format program.epho   # format source with EphoFMT
+epholang format --check program.epho # check formatting without changes
 ```
 
 To try an example without adding the binary to `PATH`:
@@ -107,15 +109,9 @@ cargo run -- run examples/03_loops.epho
 
 ### VS Code
 
-Install the Epholang VS Code extension (`.vsix`) from [Releases](https://github.com/ItsMeQuote/epholang/releases) via **Extensions → … → Install from VSIX...**.
+Use the extension and CLI from the same version of Epholang. To try the extension from this checkout, open a VS Code Extension Development Host with `--extensionDevelopmentPath` set to the full path of `editors/vscode`. If the matching CLI is outside your `PATH`, set `epholang.executablePath` to its full path.
 
-Alternatively, run the following command with the downloaded file in the current directory, replacing the filename if necessary:
-
-```sh
-code --install-extension epholang-language-0.2.0.vsix
-```
-
-The extension provides syntax highlighting and snippets. It is not a compiler or language server.
+Epholang files use tabs and format on save by default. The VS Code **Format Document** command also invokes EphoFMT. The extension highlights `-|` and the discard marker. EphoFMT formats `_=F()` as `_ = F()`. Use `check` to verify that `F()` produces a value.
 
 ## Language at a glance
 
@@ -124,14 +120,37 @@ The extension provides syntax highlighting and snippets. It is not a compiler or
 | Numbers     | `int` (`i64`) and `flt` (`f64`); no implicit mixing                      |
 | Other types | `str`, `bool`, `none`, and type values (`type`)                          |
 | Lists       | `ls<int>`, `ls<flt>`, `ls<str>`, `ls<bool>`, `ls<none>` — one level deep |
-| Variables   | `age int := 20` and `age = 21`                                           |
-| Functions   | `function Square(x int) int { return int x * x }`                        |
-| Conditions  | `if ... { } otherwise if ... { } otherwise { }`                          |
-| Loops       | `loop condition { }` or `loop item in items { }`                         |
+| Variables   | `int age := 20` and `age = 21`                                           |
+| Functions   | `function Square(int x) -> int:`                        |
+| Conditions  | `if …: / else if …: / else:`                          |
+| Loops       | `loop condition:` or `loop item in items:`                         |
 | Strings     | `Output("Hello, #{name}!\n")`                                            |
 | Comments    | `/* block comments /* can nest */ */`                                    |
 
-**Functions** require explicit parameter and return types, an explicitly typed `return`, and a return on every path. Default arguments are not supported. Functions are declared at top level before use.
+**Blocks** start on the line after a header ending in `:`. Use one tab per nesting level. Blank lines and comment-only lines do not set a level. Code after the closing delimiter of a multiline comment on the same line inherits the indentation from the comment’s opening line. Use tabs on continuation lines inside calls, indexes and lists. EphoFMT preserves multiline lists and adds a trailing comma after their last element.
+
+**Strings** support nested interpolation, such as `"Result: #{strings:Repeat("Hi #{name}", 2)}"`. Keep each interpolation on one physical line. Escapes such as `\n` and `\"` are still available in string text.
+
+**Functions** are declared at the top level before use. Each parameter has an explicit type. Default arguments and recursion are forbidden. In a function declared with `-> T`, every path must return a value with a typed `return T expression`. The marker `-|` is valid only in a function header. Such a function finishes at the end of its body and forbids every form of `return`.
+
+```epholang
+function Display(str message) -|:
+	Output(message)
+
+function Find() -> none:
+	return none null
+
+Display("Ready\n")
+none result := Find()
+Output(result)
+_ = Find()
+```
+
+Here `Find()` returns the value `null` of type `none`. You can store, print, or explicitly discard it. `Display()` and `Output()` produce no value. Call them as statements. Assigning their result, passing it as an argument, or writing `_ = Display("Ready")` is a static error.
+
+**Using results.** Every expression that produces a value must use it in context. For example, standalone `42`, `result`, and `Length("abc") + 1` are errors. Use `_ = expression` to evaluate an expression once for its effects and discard its value. Errors propagate normally. A single `_` is valid only on the left of this statement. It creates no binding. Both `_ := value` and `result = _` are errors. Epholang has no operation to delete declarations through `_`. Names such as `_item` follow the ordinary identifier rules.
+
+**Union types** use `|`. For example, `int | str` allows an integer or a string and `ls<int | str>` allows both types as list elements.
 
 **Lists** start at index **1** and require an `int` index. `Insert` and `Remove` return new lists.
 
@@ -149,7 +168,6 @@ The extension provides syntax highlighting and snippets. It is not a compiler or
 | `Includes(container, value)` | Test for a substring or list element     |
 | `Insert(list, index, value)` | Return a list with an inserted element   |
 | `Remove(list, index)`        | Return a list without an element         |
-| `TypeOf(value)`              | Get a value's type                       |
 
 ## Standard modules
 
@@ -163,18 +181,18 @@ import "types" as types
 Output(strings:ToUpperCase("hello"))
 Output("\n")
 Output("Random: #{math:RandomInterval(1, 6)}\n")
-Output("Convertible: #{types:IsConvertible(\"42\", int)}\n")
+Output("Convertible: #{types:IsConvertible("42", int)}\n")
 ```
 
 | Module    | Functions                                                                                                                  |
 | --------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `strings` | `Trim`, `Replace`, `Split`, `StartsWith`, `EndsWith`, `ToLowerCase`, `ToUpperCase`, `Capitalize`, `Repeat`                 |
 | `math`    | `AbsoluteValue`, `SquareRoot`, `Floor`, `Ceil`, `Round`, `Minimum`, `Maximum`, `Clamp`, `Sum`, `Average`, `RandomInterval` |
-| `types`   | `Convert`, `IsConvertible`                                                                                                 |
+| `types`   | `Convert`, `IsConvertible`, `DeclaredTypeOf`, `CurrentTypeOf`                                                                                                 |
 
 `math:RandomInterval(minimum, maximum)` returns an `int` with **both bounds included**. It is not intended for cryptographic use.
 
-`types:Convert(value, targetType)` and `types:IsConvertible(value, targetType)` require a literal target type (`int`, `flt`, `str`, or `bool`).
+`types:Convert(value, targetType)` and `types:IsConvertible(value, targetType)` require a literal target type (`int`, `flt`, `str`, `bool`, or `ls<str>`).
 
 See the [GitHub Wiki](https://github.com/ItsMeQuote/epholang/wiki) for function arguments, edge cases, and more examples.
 
@@ -192,7 +210,7 @@ Epholang distinguishes three error stages:
 
 Diagnostics point to the affected file, line, column, and source span.
 
-Static checks include type mismatches, unused variables, and missing returns.
+Every user declaration needs a syntactic reference after it is declared. This includes parameters, loop variables, import aliases and names starting with `_`. A valid assignment counts as a reference, as does a reference in a branch that will never execute.
 
 ## From 0.1.0 to 0.2.0
 
@@ -204,7 +222,6 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes. Detailed lang
 
 The following features are not implemented:
 
-- Union types
 - Nested lists
 - User-defined modules
 - Error handling as values

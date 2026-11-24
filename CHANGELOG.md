@@ -1,8 +1,21 @@
 # Changelog
 
-[**English**](CHANGELOG.md) &bull; [Русский](CHANGELOG.ru.md)
+[**English**](CHANGELOG.md) &bull; [Russian](CHANGELOG.ru.md)
 
 All notable changes to Epholang are recorded here.
+
+## 0.3.0 ("Beta") — November 24, 2026
+
+- Functions declared with `-|` finish at the end of their body and forbid `return`. The built-in `Output` now uses this contract. Functions returning `none` still produce the value `null`.
+- Breaking change: a standalone expression that produces a value is a static error. Use the value or explicitly discard it with `_ = expression`. A lone `_` is reserved for this statement.
+
+- Block headers use a colon followed by one tab per nesting level. Conditions use `else if` and `else`.
+- Variable and parameter types precede their names. Function headers use `->` before the result type. Return statements still carry an explicit type.
+- Strings accept ordinary quotes and nested expressions in single-line interpolation.
+- User-defined functions must be declared before calls. Direct and indirect recursion are static errors. All declared names require a reference, including names beginning with `_`.
+- EphoFMT and VS Code support the indentation syntax. EphoFMT validates syntax and adds trailing commas to multiline lists.
+
+- Added union types, break and skip, multiline logical conditions, one-based Unicode string indexing, string-to-character-list conversion, ASCII utilities and declared/current type introspection.
 
 ## 0.2.0 alpha
 

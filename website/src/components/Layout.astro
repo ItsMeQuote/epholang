@@ -1,4 +1,5 @@
 ---
+import { ru } from "../data/site.ru";
 import { Menu, ArrowUpRight } from "@lucide/astro";
 import { base, repo, slugs, labels, url, t, type Lang } from "../data/site";
 interface Props {
@@ -58,7 +59,7 @@ const canonical = new URL(noindex ? Astro.url.pathname : root ? base : url(lang,
   </head>
   <body data-root={root ? "true" : undefined}>
     <a class="skip" href="#main">
-      {t(lang, "К содержимому", "Skip to content")}
+      {t(lang, ru.skipToContent, "Skip to content")}
     </a>
     <header>
       <div class="header-inner">
@@ -75,13 +76,13 @@ const canonical = new URL(noindex ? Astro.url.pathname : root ? base : url(lang,
           class="menu-toggle"
           aria-expanded="false"
           aria-controls="navigation"
-          aria-label={t(lang, "Меню навигации", "Navigation menu")}
+          aria-label={t(lang, ru.navigationMenu, "Navigation menu")}
         >
           <Menu size={22} aria-hidden="true" />
         </button>
         <nav
           id="navigation"
-          aria-label={t(lang, "Главная навигация", "Main navigation")}
+          aria-label={t(lang, ru.mainNavigation, "Main navigation")}
         >
           {slugs.slice(1).map((s, i) => (
             <a
@@ -96,7 +97,7 @@ const canonical = new URL(noindex ? Astro.url.pathname : root ? base : url(lang,
             href={url(other, slug)}
             data-language={other}
             lang={other}
-            aria-label={other === "ru" ? "Русская версия" : "English version"}
+            aria-label={other === "ru" ? ru.englishVersion : "English version"}
           >
             {other === "ru" ? "RU" : "EN"}
           </a>
@@ -119,7 +120,7 @@ const canonical = new URL(noindex ? Astro.url.pathname : root ? base : url(lang,
           <p>
             {t(
               lang,
-              "Явность. Читаемость. Строгая проверка.",
+              ru.explicitnessReadabilityStrictChecking,
               "Explicitness. Readability. Strict checking.",
             )}
           </p>
@@ -129,14 +130,14 @@ const canonical = new URL(noindex ? Astro.url.pathname : root ? base : url(lang,
           <a href={repo + "/wiki"}>Wiki (English)</a>
           <a href={repo + "/blob/main/LICENSE"}>MIT License</a>
           <a href={repo + "/issues"}>
-            {t(lang, "Сообщить об ошибке", "Report an issue")}
+            {t(lang, ru.reportAnIssue, "Report an issue")}
           </a>
         </div>
       </div>
       <div class="footer-bottom">
         {t(
           lang,
-          "Дизайн языка — ItsMeQuote. Реализация с помощью ИИ.",
+          ru.languageDesignByItsmequoteImplementedWithAiAssistance,
           "Language design by ItsMeQuote. Implemented with AI assistance.",
         )}
       </div>

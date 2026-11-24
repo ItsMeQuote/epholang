@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+mod formatter;
+
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
+use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static OUTPUT_LINE_OPEN: AtomicBool = AtomicBool::new(false);
@@ -113,12 +116,15 @@ enum StringPart {
 #[derive(Debug, Clone, PartialEq)]
 enum TokenKind {
     Identifier(String),
+    Discard,
     Integer(i64),
     Float(f64),
     String(String),
     Interpolated(Vec<StringPart>),
     Symbol(String),
     Newline,
+    Indent,
+    Dedent,
     Eof,
 }
 
@@ -126,393 +132,564 @@ enum TokenKind {
 struct Token {
     kind: TokenKind,
     span: Span,
+    bytes: Range<usize>,
 }
 
-// Every character remembers its position in the original file.
-// This matters inside interpolation: \" becomes a single ",
-// yet the positions of the following characters must not shift.
-#[derive(Debug, Clone, Copy)]
+impl Token {
+    fn symbol(&self, symbol: &str) -> bool {
+        matches!(&self.kind, TokenKind::Symbol(text) if text == symbol)
+    }
+
+    fn has_source_text(&self) -> bool {
+        !matches!(
+            self.kind,
+            TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent | TokenKind::Eof
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
 struct SourceChar {
     ch: char,
     span: Span,
+    byte: usize,
 }
 
-fn pair(chars: &[SourceChar], i: usize, first: char, second: char) -> bool {
-    chars.get(i).is_some_and(|c| c.ch == first) && chars.get(i + 1).is_some_and(|c| c.ch == second)
+struct Lexed {
+    tokens: Vec<Token>,
+    comments: Vec<Range<usize>>,
+    line_depths: Vec<Option<usize>>,
 }
 
-fn range_span(chars: &[SourceChar], start: usize, end: usize) -> Span {
-    chars[start].span.through(chars[end - 1].span)
+struct Lexer<'a> {
+    source: &'a str,
+    chars: Vec<SourceChar>,
+    pos: usize,
+    eof: Span,
 }
 
-fn lex(source: &str) -> EResult<Vec<Token>> {
-    let mut chars = Vec::new();
-    let (mut line, mut column) = (1, 1);
-
-    for ch in source.chars() {
-        chars.push(SourceChar {
-            ch,
-            span: Span::new(line, column, 1),
-        });
-
-        if ch == '\n' {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
+impl<'a> Lexer<'a> {
+    fn new(source: &'a str) -> Self {
+        let (mut line, mut column) = (1, 1);
+        let chars = source
+            .char_indices()
+            .map(|(byte, ch)| {
+                let span = Span::new(line, column, 1);
+                if ch == '\n' {
+                    line += 1;
+                    column = 1;
+                } else {
+                    column += 1;
+                }
+                SourceChar { ch, span, byte }
+            })
+            .collect();
+        Self {
+            source,
+            chars,
+            pos: 0,
+            eof: Span::new(line, column, 1),
         }
     }
 
-    lex_chars(&chars, Span::new(line, column, 1))
-}
+    fn char_at(&self, offset: usize) -> Option<char> {
+        self.chars.get(self.pos + offset).map(|c| c.ch)
+    }
 
-fn scan_interpolation(
-    chars: &[SourceChar],
-    i: &mut usize,
-    opening_span: Span,
-) -> EResult<(Vec<SourceChar>, Span)> {
-    let mut code = Vec::new();
-    let mut in_string = false;
-    let mut brace_depth: usize = 0;
-    let mut comment_depth: usize = 0;
-    let mut comment_start = opening_span;
+    fn pair(&self, first: char, second: char) -> bool {
+        self.char_at(0) == Some(first) && self.char_at(1) == Some(second)
+    }
 
-    while *i < chars.len() {
-        let current = chars[*i];
+    fn byte_at(&self, pos: usize) -> usize {
+        self.chars.get(pos).map_or(self.source.len(), |c| c.byte)
+    }
 
-        if current.ch == '\n' {
-            return Err(Diagnostic::new(
-                current.span,
-                "Interpolation must be on one line",
-            ));
+    fn token(&self, kind: TokenKind, start: usize) -> Token {
+        let span = if start == self.pos {
+            self.chars.get(start).map_or(self.eof, |c| c.span)
+        } else {
+            self.chars[start]
+                .span
+                .through(self.chars[self.pos - 1].span)
+        };
+        Token {
+            kind,
+            span,
+            bytes: self.byte_at(start)..self.byte_at(self.pos),
         }
+    }
 
-        // Quotes and braces inside comments
-        // do not terminate the interpolation.
-        if comment_depth > 0 {
-            if pair(chars, *i, '/', '*') {
-                comment_depth += 1;
-                code.push(chars[*i]);
-                code.push(chars[*i + 1]);
-                *i += 2;
-                continue;
+    fn is_newline(&self) -> bool {
+        self.char_at(0) == Some('\n') || self.pair('\r', '\n')
+    }
+
+    fn scan(mut self) -> EResult<Lexed> {
+        let mut tokens = Vec::new();
+        let mut comments = Vec::new();
+        while let Some(ch) = self.char_at(0) {
+            if self.is_newline() {
+                let start = self.pos;
+                self.pos += if ch == '\r' { 2 } else { 1 };
+                tokens.push(self.token(TokenKind::Newline, start));
+            } else if matches!(ch, ' ' | '\t') {
+                self.pos += 1;
+            } else if self.pair('/', '*') {
+                let start = self.pos;
+                self.scan_comment(Some(&mut tokens))?;
+                comments.push(self.byte_at(start)..self.byte_at(self.pos));
+            } else {
+                tokens.push(self.scan_code_token(0)?);
             }
-
-            if pair(chars, *i, '*', '/') {
-                comment_depth -= 1;
-                code.push(chars[*i]);
-                code.push(chars[*i + 1]);
-                *i += 2;
-                continue;
-            }
-
-            code.push(current);
-            *i += 1;
-            continue;
         }
+        let eof = self.token(TokenKind::Eof, self.pos);
+        apply_layout(self.source, tokens, comments, eof)
+    }
 
-        if current.ch == '\\' {
-            if let Some(next) = chars.get(*i + 1).copied() {
-                if next.ch == '\n' {
+    fn scan_comment(&mut self, mut lines: Option<&mut Vec<Token>>) -> EResult<()> {
+        let opening = self.chars[self.pos]
+            .span
+            .through(self.chars[self.pos + 1].span);
+        self.pos += 2;
+        let mut depth = 1;
+
+        while let Some(ch) = self.char_at(0) {
+            if self.pair('/', '*') {
+                depth += 1;
+                self.pos += 2;
+            } else if self.pair('*', '/') {
+                depth -= 1;
+                self.pos += 2;
+                if depth == 0 {
+                    return Ok(());
+                }
+            } else if self.is_newline() {
+                let start = self.pos;
+                self.pos += if ch == '\r' { 2 } else { 1 };
+                if let Some(tokens) = lines.as_deref_mut() {
+                    tokens.push(self.token(TokenKind::Newline, start));
+                } else {
                     return Err(Diagnostic::new(
-                        next.span,
+                        self.chars[start].span,
                         "Interpolation must be on one line",
                     ));
                 }
-
-                if next.ch == '"' {
-                    in_string = !in_string;
-
-                    code.push(SourceChar {
-                        ch: '"',
-                        span: current.span.through(next.span),
-                    });
-                } else {
-                    code.push(current);
-                    code.push(next);
-                }
-
-                *i += 2;
-                continue;
+            } else {
+                self.pos += 1;
             }
         }
 
-        if current.ch == '"' {
-            return Err(Diagnostic::new(
-                current.span,
-                "Use \\\" for strings inside interpolation",
-            ));
-        }
-
-        if in_string {
-            code.push(current);
-            *i += 1;
-            continue;
-        }
-
-        if pair(chars, *i, '/', '*') {
-            comment_depth = 1;
-            comment_start = range_span(chars, *i, *i + 2);
-            code.push(chars[*i]);
-            code.push(chars[*i + 1]);
-            *i += 2;
-            continue;
-        }
-
-        if current.ch == '{' {
-            brace_depth += 1;
-        } else if current.ch == '}' {
-            if brace_depth == 0 {
-                *i += 1;
-                return Ok((code, current.span));
-            }
-
-            brace_depth -= 1;
-        }
-
-        code.push(current);
-        *i += 1;
+        Err(Diagnostic::new(opening, "Unclosed block comment"))
     }
 
-    if comment_depth > 0 {
-        Err(Diagnostic::new(comment_start, "Unclosed comment"))
-    } else {
-        Err(Diagnostic::new(opening_span, "Unclosed interpolation"))
-    }
-}
+    fn scan_string(&mut self, depth: usize) -> EResult<TokenKind> {
+        let opening = self.chars[self.pos].span;
+        self.pos += 1;
+        let mut parts = Vec::new();
+        let mut text = String::new();
 
-fn lex_chars(chars: &[SourceChar], eof_span: Span) -> EResult<Vec<Token>> {
-    let mut tokens = Vec::new();
-    let mut i = 0;
-
-    while i < chars.len() {
-        let c = chars[i].ch;
-
-        if matches!(c, ' ' | '\t' | '\r') {
-            i += 1;
-            continue;
-        }
-
-        if c == '\n' {
-            tokens.push(Token {
-                kind: TokenKind::Newline,
-                span: chars[i].span,
-            });
-            i += 1;
-            continue;
-        }
-
-        if pair(chars, i, '/', '*') {
-            let opening_span = range_span(chars, i, i + 2);
-            let mut depth: usize = 1;
-            i += 2;
-
-            while i < chars.len() && depth > 0 {
-                if pair(chars, i, '/', '*') {
-                    depth += 1;
-                    i += 2;
-                } else if pair(chars, i, '*', '/') {
-                    depth -= 1;
-                    i += 2;
-                } else {
-                    i += 1;
-                }
+        while let Some(ch) = self.char_at(0) {
+            if self.is_newline() {
+                return Err(Diagnostic::new(
+                    self.chars[self.pos].span,
+                    "Newline inside string",
+                ));
             }
 
-            if depth != 0 {
-                return Err(Diagnostic::new(opening_span, "Unclosed comment"));
-            }
-
-            continue;
-        }
-
-        let start = i;
-
-        if c == '"' {
-            i += 1;
-
-            let mut parts = Vec::new();
-            let mut text = String::new();
-            let mut closed = false;
-
-            while i < chars.len() {
-                let ch = chars[i].ch;
-
-                if ch == '"' {
-                    i += 1;
-                    closed = true;
-                    break;
+            match ch {
+                '"' => {
+                    self.pos += 1;
+                    return if parts.is_empty() {
+                        Ok(TokenKind::String(text))
+                    } else {
+                        if !text.is_empty() {
+                            parts.push(StringPart::Text(text));
+                        }
+                        Ok(TokenKind::Interpolated(parts))
+                    };
                 }
-
-                if ch == '\n' {
-                    return Err(Diagnostic::new(chars[i].span, "Newline inside string"));
-                }
-
-                if ch == '\\' && i + 1 < chars.len() {
-                    if chars[i + 1].ch == '\n' {
-                        return Err(Diagnostic::new(chars[i + 1].span, "Newline inside string"));
+                '\\' if self.char_at(1).is_some() => {
+                    self.pos += 1;
+                    if self.is_newline() {
+                        return Err(Diagnostic::new(
+                            self.chars[self.pos].span,
+                            "Newline inside string",
+                        ));
                     }
-
-                    match chars[i + 1].ch {
+                    let escaped = self.chars[self.pos].ch;
+                    match escaped {
                         'n' => text.push('\n'),
                         't' => text.push('\t'),
-                        '"' => text.push('"'),
-                        '\\' => text.push('\\'),
-                        '#' => text.push('#'),
-                        '}' => text.push('}'),
+                        '"' | '\\' | '#' | '}' => text.push(escaped),
                         other => {
                             text.push('\\');
                             text.push(other);
                         }
                     }
-
-                    i += 2;
-                    continue;
+                    self.pos += 1;
                 }
-
-                if pair(chars, i, '#', '{') {
-                    let opening_span = range_span(chars, i, i + 2);
-                    i += 2;
-
-                    let (code, code_eof) = scan_interpolation(chars, &mut i, opening_span)?;
-
-                    if code.iter().all(|c| c.ch.is_whitespace()) {
-                        return Err(Diagnostic::new(opening_span, "Empty interpolation"));
-                    }
-
-                    let code_tokens = lex_chars(&code, code_eof)?;
-
+                '#' if self.char_at(1) == Some('{') => {
                     if !text.is_empty() {
                         parts.push(StringPart::Text(std::mem::take(&mut text)));
                     }
-
-                    parts.push(StringPart::Code(code_tokens));
-                    continue;
+                    let opening = self.chars[self.pos]
+                        .span
+                        .through(self.chars[self.pos + 1].span);
+                    self.pos += 2;
+                    // Bound the recursive consumers of an interpolated token as well as the lexer.
+                    if depth >= 128 {
+                        return Err(Diagnostic::new(
+                            opening,
+                            "Interpolation nesting is too deep",
+                        ));
+                    }
+                    parts.push(StringPart::Code(
+                        self.scan_interpolation(depth + 1, opening)?,
+                    ));
                 }
-
-                text.push(ch);
-                i += 1;
-            }
-
-            if !closed {
-                return Err(Diagnostic::new(chars[start].span, "Unclosed string"));
-            }
-
-            let kind = if parts.is_empty() {
-                TokenKind::String(text)
-            } else {
-                if !text.is_empty() {
-                    parts.push(StringPart::Text(text));
-                }
-
-                TokenKind::Interpolated(parts)
-            };
-
-            tokens.push(Token {
-                kind,
-                span: range_span(chars, start, i),
-            });
-
-            continue;
-        }
-
-        if c.is_ascii_digit()
-            || (c == '.' && chars.get(i + 1).is_some_and(|c| c.ch.is_ascii_digit()))
-        {
-            while i < chars.len() && chars[i].ch.is_ascii_digit() {
-                i += 1;
-            }
-
-            if i < chars.len()
-                && chars[i].ch == '.'
-                && chars.get(i + 1).is_some_and(|c| c.ch.is_ascii_digit())
-            {
-                i += 1;
-
-                while i < chars.len() && chars[i].ch.is_ascii_digit() {
-                    i += 1;
+                _ => {
+                    text.push(ch);
+                    self.pos += 1;
                 }
             }
-
-            let span = range_span(chars, start, i);
-            let text: String = chars[start..i].iter().map(|c| c.ch).collect();
-
-            let kind = if text.contains('.') {
-                let value = text
-                    .parse::<f64>()
-                    .map_err(|_| Diagnostic::new(span, "Invalid floating-point number"))?;
-                if !value.is_finite() {
-                    return Err(Diagnostic::new(span, "Floating-point number out of range"));
-                }
-                TokenKind::Float(value)
-            } else {
-                let value = text
-                    .parse::<i64>()
-                    .map_err(|_| Diagnostic::new(span, "Integer literal out of i64 range"))?;
-                TokenKind::Integer(value)
-            };
-
-            tokens.push(Token { kind, span });
-
-            continue;
         }
 
-        if c.is_ascii_alphabetic() || c == '_' {
-            while i < chars.len() && (chars[i].ch.is_ascii_alphanumeric() || chars[i].ch == '_') {
-                i += 1;
-            }
-
-            let name: String = chars[start..i].iter().map(|c| c.ch).collect();
-
-            tokens.push(Token {
-                kind: TokenKind::Identifier(name),
-                span: range_span(chars, start, i),
-            });
-
-            continue;
-        }
-
-        let two: String = chars.iter().skip(i).take(2).map(|c| c.ch).collect();
-
-        if two == "<=" || two == ">=" {
-            return Err(Diagnostic::new(
-                range_span(chars, i, i + 2),
-                format!("Operator '{}' is not supported", two),
-            ));
-        }
-
-        if ["==", "!=", ":=", "&&", "||"].contains(&two.as_str()) {
-            tokens.push(Token {
-                kind: TokenKind::Symbol(two),
-                span: range_span(chars, i, i + 2),
-            });
-
-            i += 2;
-            continue;
-        }
-
-        if "+-*/%^(){}[],;=<>!:".contains(c) {
-            tokens.push(Token {
-                kind: TokenKind::Symbol(c.to_string()),
-                span: chars[i].span,
-            });
-
-            i += 1;
-            continue;
-        }
-
-        return Err(Diagnostic::new(
-            chars[i].span,
-            format!("Unexpected character '{}'", c),
-        ));
+        Err(Diagnostic::new(opening, "Unclosed string"))
     }
 
-    tokens.push(Token {
-        kind: TokenKind::Eof,
-        span: eof_span,
+    fn scan_interpolation(&mut self, depth: usize, opening: Span) -> EResult<Vec<Token>> {
+        let mut tokens = Vec::new();
+        let mut delimiters = Delimiters::default();
+
+        while let Some(ch) = self.char_at(0) {
+            if self.is_newline() {
+                return Err(Diagnostic::new(
+                    self.chars[self.pos].span,
+                    "Interpolation must be on one line",
+                ));
+            }
+
+            if matches!(ch, ' ' | '\t') {
+                self.pos += 1;
+            } else if self.pair('/', '*') {
+                self.scan_comment(None)?;
+            } else if ch == '}' && delimiters.stack.last() != Some(&Delimiter::List) {
+                if let Some(delimiter) = delimiters.stack.last() {
+                    return Err(Diagnostic::new(
+                        self.chars[self.pos].span,
+                        format!("Expected '{}' inside interpolation", delimiter.closing()),
+                    ));
+                }
+                if tokens.is_empty() {
+                    return Err(Diagnostic::new(opening, "Empty interpolation"));
+                }
+                tokens.push(self.token(TokenKind::Eof, self.pos));
+                self.pos += 1;
+                return Ok(tokens);
+            } else {
+                let token = self.scan_code_token(depth)?;
+                delimiters.accept(&token);
+                tokens.push(token);
+            }
+        }
+
+        Err(Diagnostic::new(opening, "Unclosed interpolation"))
+    }
+
+    fn scan_code_token(&mut self, depth: usize) -> EResult<Token> {
+        let start = self.pos;
+        let ch = self.chars[start].ch;
+
+        let kind = if ch == '"' {
+            self.scan_string(depth)?
+        } else if ch.is_ascii_digit()
+            || (ch == '.' && self.char_at(1).is_some_and(|c| c.is_ascii_digit()))
+        {
+            return self.scan_number();
+        } else if ch.is_ascii_alphabetic() || ch == '_' {
+            while self
+                .char_at(0)
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                self.pos += 1;
+            }
+            let name = &self.source[self.byte_at(start)..self.byte_at(self.pos)];
+            if name == "_" {
+                TokenKind::Discard
+            } else {
+                TokenKind::Identifier(name.into())
+            }
+        } else {
+            let next = self.char_at(1);
+            if matches!((ch, next), ('<' | '>', Some('='))) {
+                self.pos += 2;
+                return Err(Diagnostic::new(
+                    self.token(TokenKind::Eof, start).span,
+                    format!("Operator '{}=' is not supported", ch),
+                ));
+            }
+            if matches!(
+                (ch, next),
+                ('=' | '!' | ':', Some('='))
+                    | ('&', Some('&'))
+                    | ('|', Some('|'))
+                    | ('-', Some('>' | '|'))
+            ) {
+                self.pos += 2;
+            } else if "+-*/%^(){}[],;=<>!:|".contains(ch) {
+                self.pos += 1;
+            } else {
+                return Err(Diagnostic::new(
+                    self.chars[start].span,
+                    format!("Unexpected character '{}'", ch.escape_default()),
+                ));
+            }
+            TokenKind::Symbol(self.source[self.byte_at(start)..self.byte_at(self.pos)].into())
+        };
+
+        Ok(self.token(kind, start))
+    }
+
+    fn scan_number(&mut self) -> EResult<Token> {
+        let start = self.pos;
+        while self.char_at(0).is_some_and(|c| c.is_ascii_digit()) {
+            self.pos += 1;
+        }
+        let float =
+            self.char_at(0) == Some('.') && self.char_at(1).is_some_and(|c| c.is_ascii_digit());
+        if float {
+            self.pos += 1;
+            while self.char_at(0).is_some_and(|c| c.is_ascii_digit()) {
+                self.pos += 1;
+            }
+        }
+
+        let mut token = self.token(TokenKind::Eof, start);
+        let text = &self.source[token.bytes.clone()];
+        token.kind = if float {
+            let value = text
+                .parse::<f64>()
+                .map_err(|_| Diagnostic::new(token.span, "Invalid floating-point number"))?;
+            if !value.is_finite() {
+                return Err(Diagnostic::new(
+                    token.span,
+                    "Floating-point number out of range",
+                ));
+            }
+            TokenKind::Float(value)
+        } else {
+            let value = text
+                .parse::<i64>()
+                .map_err(|_| Diagnostic::new(token.span, "Integer literal out of i64 range"))?;
+            TokenKind::Integer(value)
+        };
+
+        Ok(token)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Delimiter {
+    Paren,
+    Bracket,
+    List,
+    Type { list_literal: bool },
+}
+
+impl Delimiter {
+    fn closing(self) -> &'static str {
+        match self {
+            Self::Paren => ")",
+            Self::Bracket => "]",
+            Self::List => "}",
+            Self::Type { .. } => ">",
+        }
+    }
+}
+
+#[derive(Default)]
+struct Delimiters {
+    stack: Vec<Delimiter>,
+    type_start: Option<bool>,
+    after_list_type: bool,
+}
+
+impl Delimiters {
+    fn closes(&self, token: &Token) -> bool {
+        self.stack.last().is_some_and(|d| token.symbol(d.closing()))
+    }
+
+    fn accept(&mut self, token: &Token) {
+        let type_start = self.type_start.take();
+        let after_list_type = std::mem::take(&mut self.after_list_type);
+        if self.closes(token) {
+            self.after_list_type = self.stack.pop() == Some(Delimiter::Type { list_literal: true });
+        } else if token.symbol("(") {
+            self.stack.push(Delimiter::Paren);
+        } else if token.symbol("[") {
+            self.stack.push(Delimiter::Bracket);
+        } else if token.symbol("{") && after_list_type {
+            self.stack.push(Delimiter::List);
+        } else if token.symbol("<") {
+            if let Some(list_literal) = type_start {
+                self.stack.push(Delimiter::Type { list_literal });
+            }
+        } else if let TokenKind::Identifier(name) = &token.kind {
+            self.type_start = match name.as_str() {
+                "list" => Some(true),
+                "ls" => Some(false),
+                _ => None,
+            };
+        }
+    }
+}
+
+fn apply_layout(
+    source: &str,
+    raw: Vec<Token>,
+    comments: Vec<Range<usize>>,
+    eof: Token,
+) -> EResult<Lexed> {
+    let mut tokens = Vec::with_capacity(raw.len() + 1);
+    let mut levels = vec![0];
+    let mut delimiters = Delimiters::default();
+    let mut newline = None;
+    let mut lines = Vec::new();
+    let mut offset = 0;
+    let mut comment_index = 0;
+    let mut comment_prefix = None;
+    let mut physical_lines = source.split('\n').enumerate().map(|(row, line)| {
+        let start = offset;
+        offset += line.len() + 1;
+        let end = start
+            + line
+                .bytes()
+                .take_while(|c| matches!(c, b' ' | b'\t'))
+                .count();
+        let prefix = comment_prefix.take().unwrap_or((row + 1, start..end));
+        // A physical line that starts inside a comment has no independent
+        // source indentation. Code following its closer uses the prefix
+        // from where that comment opened.
+        while let Some(comment) = comments.get(comment_index).filter(|c| c.start < offset) {
+            if comment.end > offset {
+                comment_prefix = Some(prefix.clone());
+                break;
+            }
+            comment_index += 1;
+        }
+        prefix
     });
 
-    Ok(tokens)
+    let mut raw = raw.into_iter();
+    while let Some(token) = raw.next() {
+        if token.kind == TokenKind::Newline {
+            if newline.is_none() {
+                newline = Some(token);
+            }
+            continue;
+        }
+
+        if token.span.line > lines.len() {
+            let (prefix_line, prefix) = physical_lines
+                .nth(token.span.line - lines.len() - 1)
+                .unwrap();
+            let bytes = &source.as_bytes()[prefix.clone()];
+            if bytes.contains(&b' ') {
+                let message = if bytes.contains(&b'\t') {
+                    "Indentation cannot mix tabs and spaces"
+                } else {
+                    "Indentation must use tabs"
+                };
+                return Err(Diagnostic::new(
+                    Span::new(prefix_line, 1, bytes.len()),
+                    message,
+                ));
+            }
+
+            let level = *levels.last().unwrap();
+            let depth = bytes.len();
+            let logical_continuation = delimiters.stack.is_empty()
+                && (token.symbol("&&") || token.symbol("||"))
+                && depth >= level
+                && tokens.last().is_some_and(|last: &Token| {
+                    last.has_source_text() && !last.symbol(":") && !last.symbol(";")
+                });
+            let canonical_depth = if !delimiters.stack.is_empty() {
+                let closing_count = std::iter::once(&token)
+                    .chain(raw.as_slice())
+                    .zip(delimiters.stack.iter().rev())
+                    .take_while(|(next, delimiter)| {
+                        next.span.line == token.span.line && next.symbol(delimiter.closing())
+                    })
+                    .count();
+                level + delimiters.stack.len() - closing_count
+            } else if logical_continuation {
+                level + 1
+            } else {
+                delimiters = Delimiters::default();
+                if !tokens.is_empty() {
+                    tokens.extend(newline.take());
+                }
+                let layout_token = |kind| Token {
+                    kind,
+                    span: Span::new(prefix_line, 1, depth.max(1)),
+                    bytes: prefix.start..prefix.start,
+                };
+                if depth > level {
+                    if depth != level + 1 {
+                        return Err(Diagnostic::new(
+                            Span::new(prefix_line, 1, depth),
+                            "Indentation must increase by one tab",
+                        ));
+                    }
+                    levels.push(depth);
+                    tokens.push(layout_token(TokenKind::Indent));
+                } else {
+                    while *levels.last().unwrap() > depth {
+                        levels.pop();
+                        tokens.push(layout_token(TokenKind::Dedent));
+                    }
+                    if *levels.last().unwrap() != depth {
+                        return Err(Diagnostic::new(
+                            Span::new(prefix_line, 1, depth.max(1)),
+                            "Dedent does not match an enclosing block",
+                        ));
+                    }
+                }
+                depth
+            };
+
+            lines.resize_with(token.span.line - 1, || None);
+            lines.push(Some(canonical_depth));
+            newline = None;
+        }
+
+        delimiters.accept(&token);
+        tokens.push(token);
+    }
+
+    if !tokens.is_empty() && delimiters.stack.is_empty() {
+        tokens.extend(newline);
+    }
+    for _ in 1..levels.len() {
+        tokens.push(Token {
+            kind: TokenKind::Dedent,
+            ..eof.clone()
+        });
+    }
+    tokens.push(eof);
+    Ok(Lexed {
+        tokens,
+        comments,
+        line_depths: lines,
+    })
+}
+
+fn lex_source(source: &str) -> EResult<Lexed> {
+    Lexer::new(source).scan()
+}
+
+fn lex(source: &str) -> EResult<Vec<Token>> {
+    Ok(lex_source(source)?.tokens)
 }
 
 // ============================================================
@@ -579,6 +756,36 @@ enum Type {
 
 impl Type {
     fn from_name(name: &str) -> Option<Self> {
+        let name = name.trim();
+        let members = split_type_union(name)?;
+
+        if members.len() > 1 {
+            let mut union = Vec::new();
+
+            for member in members {
+                match Self::from_name(member)? {
+                    Self::Union(nested) => {
+                        for ty in nested {
+                            if !union.contains(&ty) {
+                                union.push(ty);
+                            }
+                        }
+                    }
+                    ty => {
+                        if !union.contains(&ty) {
+                            union.push(ty);
+                        }
+                    }
+                }
+            }
+
+            return match union.len() {
+                0 => None,
+                1 => union.pop(),
+                _ => Some(Self::Union(union)),
+            };
+        }
+
         match name {
             "int" => Some(Self::Int),
             "flt" => Some(Self::Flt),
@@ -588,21 +795,205 @@ impl Type {
             "type" => Some(Self::Meta),
             _ => {
                 let inner = name.strip_prefix("ls<")?.strip_suffix('>')?;
-                match Self::from_name(inner)? {
-                    ty @ (Self::Int | Self::Flt | Self::Str | Self::Bool | Self::None) => {
-                        Some(Self::List(Box::new(ty)))
-                    }
-                    _ => None,
+                let inner_type = Self::from_name(inner)?;
+
+                if inner_type.is_list_element() {
+                    Some(Self::List(Box::new(inner_type)))
+                } else {
+                    None
                 }
             }
         }
     }
+
+    fn name(&self) -> String {
+        match self {
+            Self::Int => "int".into(),
+            Self::Flt => "flt".into(),
+            Self::Str => "str".into(),
+            Self::Bool => "bool".into(),
+            Self::None => "none".into(),
+            Self::Meta => "type".into(),
+            Self::List(inner) => format!("ls<{}>", inner.name()),
+            Self::Union(members) => members
+                .iter()
+                .map(Self::name)
+                .collect::<Vec<_>>()
+                .join(" | "),
+        }
+    }
+
+    fn is_list_element(&self) -> bool {
+        match self {
+            Self::Int | Self::Flt | Self::Str | Self::Bool | Self::None => true,
+            Self::Union(members) => members.iter().all(Self::is_list_element),
+            Self::Meta | Self::List(_) => false,
+        }
+    }
 }
 
-const ELEMENT_TYPES: [&str; 5] = ["int", "flt", "str", "bool", "none"];
+fn split_type_union(name: &str) -> Option<Vec<&str>> {
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    let mut members = Vec::new();
+
+    for (index, character) in name.char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' => {
+                depth = depth.checked_sub(1)?;
+            }
+            '|' if depth == 0 => {
+                members.push(name[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+
+    if depth != 0 {
+        return None;
+    }
+
+    members.push(name[start..].trim());
+
+    if members.iter().any(|member| member.is_empty()) {
+        None
+    } else {
+        Some(members)
+    }
+}
+
+fn type_accepts(expected: &str, actual: &str) -> bool {
+    let expected = match Type::from_name(expected) {
+        Some(ty) => ty,
+        None => return false,
+    };
+    let actual = match Type::from_name(actual) {
+        Some(ty) => ty,
+        None => return false,
+    };
+
+    let expected_members: Vec<&Type> = match &expected {
+        Type::Union(members) => members.iter().collect(),
+        ty => vec![ty],
+    };
+    let actual_members: Vec<&Type> = match &actual {
+        Type::Union(members) => members.iter().collect(),
+        ty => vec![ty],
+    };
+
+    actual_members
+        .iter()
+        .all(|actual| expected_members.contains(actual))
+}
+
+fn type_contains(name: &str, target: &Type) -> bool {
+    match Type::from_name(name) {
+        Some(Type::Union(members)) => members.contains(target),
+        Some(ty) => &ty == target,
+        None => false,
+    }
+}
+
+fn list_element_type(name: &str) -> Option<String> {
+    let list_type = Type::from_name(name)?;
+    let members: Vec<&Type> = match &list_type {
+        Type::Union(members) => members.iter().collect(),
+        ty => vec![ty],
+    };
+    let mut element_types = Vec::new();
+
+    for member in members {
+        let Type::List(inner) = member else {
+            return None;
+        };
+
+        match inner.as_ref() {
+            Type::Union(nested) => {
+                for ty in nested {
+                    if !element_types.contains(ty) {
+                        element_types.push(ty.clone());
+                    }
+                }
+            }
+            ty => {
+                if !element_types.contains(ty) {
+                    element_types.push(ty.clone());
+                }
+            }
+        }
+    }
+
+    match element_types.len() {
+        0 => None,
+        1 => element_types.pop().map(|ty| ty.name()),
+        _ => Some(Type::Union(element_types).name()),
+    }
+}
+
+fn list_accepts_element(list_type: &str, element_type: &str) -> bool {
+    let Some(list_type) = Type::from_name(list_type) else {
+        return false;
+    };
+    let members: Vec<&Type> = match &list_type {
+        Type::Union(members) => members.iter().collect(),
+        ty => vec![ty],
+    };
+
+    !members.is_empty()
+        && members.iter().all(|member| match member {
+            Type::List(inner) => type_accepts(&inner.name(), element_type),
+            _ => false,
+        })
+}
+
+fn is_list_type(name: &str) -> bool {
+    let Some(ty) = Type::from_name(name) else {
+        return false;
+    };
+    match ty {
+        Type::List(_) => true,
+        Type::Union(members) => members.iter().all(|member| matches!(member, Type::List(_))),
+        _ => false,
+    }
+}
+
+fn valid_list_element_type(name: &str) -> bool {
+    Type::from_name(name).is_some_and(|ty| ty.is_list_element())
+}
 
 fn valid_type(name: &str) -> bool {
     Type::from_name(name).is_some()
+}
+
+fn ascii_letter_byte(text: &str) -> Option<u8> {
+    let bytes = text.as_bytes();
+
+    if bytes.len() == 1 && (bytes[0].is_ascii_uppercase() || bytes[0].is_ascii_lowercase()) {
+        Some(bytes[0])
+    } else {
+        None
+    }
+}
+
+fn ascii_alphabet_range(from: &str, to: &str) -> Result<String, &'static str> {
+    let start = ascii_letter_byte(from)
+        .ok_or("AlphabetRange() start must be exactly one ASCII letter (A-Z or a-z)")?;
+    let end = ascii_letter_byte(to)
+        .ok_or("AlphabetRange() end must be exactly one ASCII letter (A-Z or a-z)")?;
+
+    if start.is_ascii_uppercase() != end.is_ascii_uppercase() {
+        return Err("AlphabetRange() endpoints must use the same case");
+    }
+
+    let bytes: Box<dyn Iterator<Item = u8>> = if start <= end {
+        Box::new(start..=end)
+    } else {
+        Box::new((end..=start).rev())
+    };
+
+    Ok(bytes.map(char::from).collect())
 }
 
 fn list_inner(name: &str) -> Option<&str> {
@@ -637,13 +1028,16 @@ fn check_reserved(name: &Name) -> EResult<()> {
         "Includes",
         "Insert",
         "Remove",
-        "TypeOf",
+        "DeclaredTypeOf",
+        "CurrentTypeOf",
         "true",
         "false",
         "null",
         "loop",
+        "break",
+        "skip",
         "if",
-        "otherwise",
+        "else",
         "return",
         "func",
         "function",
@@ -676,10 +1070,23 @@ struct Parameter {
 }
 
 #[derive(Debug, Clone)]
+enum FunctionResult<T> {
+    Value(T),
+    NoValue,
+}
+
+const DISCARD_POSITION: &str = "'_' is only allowed on the left of '_ = expression'";
+const VALUE_REQUIRED: &str =
+    "This call produces no value and cannot be used as an expression value";
+const UNUSED_VALUE: &str = "Unused expression value; use '_ = expression' to discard it";
+const NOTHING_TO_DISCARD: &str = "This call produces no value to discard";
+const NO_VALUE_RETURN: &str = "'return' is forbidden in a function declared with '-|'";
+
+#[derive(Debug, Clone)]
 struct FunctionDef {
     name: Name,
     parameters: Vec<Parameter>,
-    return_type: TypeAnn,
+    result: FunctionResult<TypeAnn>,
     body: Vec<Stmt>,
 }
 
@@ -749,17 +1156,21 @@ enum Statement {
     },
 
     Expression(Expr),
+    Discard(Expr),
 
     Return {
         declared_type: TypeAnn,
         value: Expr,
     },
 
+    Break,
+    Skip,
+
     Function(FunctionDef),
 
     If {
         branches: Vec<(Expr, Vec<Stmt>)>,
-        otherwise_body: Option<Vec<Stmt>>,
+        else_body: Option<Vec<Stmt>>,
     },
 
     While {
@@ -781,11 +1192,16 @@ enum Statement {
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    trailing_commas: Vec<usize>,
 }
 
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+        Self {
+            tokens,
+            pos: 0,
+            trailing_commas: Vec::new(),
+        }
     }
 
     fn current(&self) -> &Token {
@@ -807,10 +1223,7 @@ impl Parser {
     }
 
     fn symbol(&self, value: &str) -> bool {
-        matches!(
-            &self.current().kind,
-            TokenKind::Symbol(s) if s == value
-        )
+        self.current().symbol(value)
     }
 
     fn identifier_is(&self, value: &str) -> bool {
@@ -820,7 +1233,7 @@ impl Parser {
         )
     }
 
-    fn skip_newlines(&mut self) {
+    fn skip_statement_separators(&mut self) {
         while matches!(&self.current().kind, TokenKind::Newline) || self.symbol(";") {
             self.advance();
         }
@@ -846,45 +1259,90 @@ impl Parser {
                 span: token.span,
             }),
 
+            TokenKind::Discard => Err(Diagnostic::new(token.span, DISCARD_POSITION)),
             _ => Err(Diagnostic::new(token.span, "Expected an identifier")),
+        }
+    }
+
+    fn parse_type_atom(&mut self) -> EResult<String> {
+        let name = self.expect_name()?;
+
+        if name.text == "ls" {
+            let inner = self.parse_element_type()?;
+            Ok(format!("ls<{}>", inner))
+        } else {
+            Ok(name.text)
+        }
+    }
+
+    fn parse_type_union(&mut self) -> EResult<String> {
+        let mut members = vec![self.parse_type_atom()?];
+
+        while self.symbol("|") {
+            self.advance();
+            members.push(self.parse_type_atom()?);
+        }
+
+        let name = members.join(" | ");
+
+        if let Some(ty) = Type::from_name(&name) {
+            Ok(ty.name())
+        } else {
+            Ok(name)
         }
     }
 
     fn parse_element_type(&mut self) -> EResult<String> {
         self.expect_symbol("<")?;
+        let inner_span = self.current().span;
+        let inner = self.parse_type_union()?;
 
-        let inner = self.expect_name()?;
-
-        if !ELEMENT_TYPES.contains(&inner.text.as_str()) {
-            return Err(Diagnostic::new(inner.span, "Invalid list element type"));
+        if !valid_list_element_type(&inner) {
+            return Err(Diagnostic::new(inner_span, "Invalid list element type"));
         }
 
         self.expect_symbol(">")?;
-        Ok(inner.text)
+        Ok(inner)
     }
 
     fn parse_type(&mut self) -> EResult<TypeAnn> {
-        let name = self.expect_name()?;
-        let span = name.span;
+        let span = self.current().span;
+        let name = self.parse_type_union()?;
 
-        let text = if name.text == "ls" {
-            let inner = self.parse_element_type()?;
-            format!("ls<{}>", inner)
-        } else {
-            name.text
-        };
-
-        Ok(TypeAnn { name: text, span })
+        Ok(TypeAnn { name, span })
     }
 
     fn parse_program(&mut self) -> EResult<Vec<Stmt>> {
+        self.parse_statements(false)
+    }
+
+    fn parse_statements(&mut self, in_block: bool) -> EResult<Vec<Stmt>> {
         let mut statements = Vec::new();
-        self.skip_newlines();
+        self.skip_statement_separators();
+        while self.current().kind != TokenKind::Eof
+            && !(in_block && self.current().kind == TokenKind::Dedent)
+        {
+            if self.current().kind == TokenKind::Indent {
+                return Err(Diagnostic::new(
+                    self.current().span,
+                    "Unexpected indentation",
+                ));
+            }
+            let stmt = self.parse_statement()?;
+            let compound = matches!(
+                stmt.kind,
+                Statement::Function(_)
+                    | Statement::If { .. }
+                    | Statement::While { .. }
+                    | Statement::CycleIn { .. }
+            );
+            statements.push(stmt);
 
-        while !matches!(&self.current().kind, TokenKind::Eof) {
-            statements.push(self.parse_statement()?);
-
-            if !matches!(&self.current().kind, TokenKind::Eof | TokenKind::Newline)
+            if !compound
+                && !matches!(
+                    self.current().kind,
+                    TokenKind::Eof | TokenKind::Newline | TokenKind::Dedent
+                )
                 && !self.symbol(";")
             {
                 return Err(Diagnostic::new(
@@ -892,40 +1350,44 @@ impl Parser {
                     "Expected a newline or ';'",
                 ));
             }
-
-            self.skip_newlines();
+            self.skip_statement_separators();
         }
-
         Ok(statements)
     }
 
     fn parse_block(&mut self) -> EResult<Vec<Stmt>> {
-        self.expect_symbol("{")?;
-        self.skip_newlines();
-
-        let mut statements = Vec::new();
-
-        while !self.symbol("}") {
-            if matches!(&self.current().kind, TokenKind::Eof) {
-                return Err(Diagnostic::new(self.current().span, "Unclosed block"));
-            }
-
-            statements.push(self.parse_statement()?);
-
-            if !self.symbol("}")
-                && !matches!(&self.current().kind, TokenKind::Newline)
-                && !self.symbol(";")
-            {
-                return Err(Diagnostic::new(
-                    self.current().span,
-                    "Expected a newline or ';' inside the block",
-                ));
-            }
-
-            self.skip_newlines();
+        self.expect_symbol(":")?;
+        if self.current().kind != TokenKind::Newline {
+            let message = if matches!(self.current().kind, TokenKind::Eof | TokenKind::Dedent) {
+                "Expected an indented block"
+            } else {
+                "Expected a newline after ':'"
+            };
+            return Err(Diagnostic::new(self.current().span, message));
         }
+        self.advance();
+        if self.current().kind != TokenKind::Indent {
+            return Err(Diagnostic::new(
+                self.current().span,
+                "Expected an indented block",
+            ));
+        }
+        self.advance();
 
-        self.expect_symbol("}")?;
+        let statements = self.parse_statements(true)?;
+        if statements.is_empty() {
+            return Err(Diagnostic::new(
+                self.current().span,
+                "Expected a statement in the block",
+            ));
+        }
+        if self.current().kind != TokenKind::Dedent {
+            return Err(Diagnostic::new(
+                self.current().span,
+                "Expected the end of the block",
+            ));
+        }
+        self.advance();
         Ok(statements)
     }
 
@@ -934,16 +1396,16 @@ impl Parser {
         let name = self.expect_name()?;
         check_reserved(&name)?;
         self.expect_symbol("(")?;
-        self.skip_newlines();
 
         let mut parameters: Vec<Parameter> = Vec::new();
         if !self.symbol(")") {
             loop {
+                let parameter_type = self.parse_type()?;
                 let parameter_name = self.expect_name()?;
                 check_reserved(&parameter_name)?;
-                let parameter_type = self.parse_type()?;
                 if !valid_type(&parameter_type.name)
-                    || matches!(parameter_type.name.as_str(), "none" | "type")
+                    || type_contains(&parameter_type.name, &Type::None)
+                    || type_contains(&parameter_type.name, &Type::Meta)
                 {
                     return Err(Diagnostic::new(
                         parameter_type.span,
@@ -953,7 +1415,7 @@ impl Parser {
                 if self.symbol("=") {
                     return Err(Diagnostic::new(
                         self.current().span,
-                        "Default parameters are no longer supported",
+                        "Default parameter values are not allowed",
                     ));
                 }
                 if parameters
@@ -969,10 +1431,8 @@ impl Parser {
                     name: parameter_name,
                     declared_type: parameter_type,
                 });
-                self.skip_newlines();
                 if self.symbol(",") {
                     self.advance();
-                    self.skip_newlines();
                     if self.symbol(")") {
                         break;
                     }
@@ -982,15 +1442,28 @@ impl Parser {
             }
         }
         self.expect_symbol(")")?;
-        let return_type = self.parse_type()?;
-        if !valid_type(&return_type.name) {
-            return Err(Diagnostic::new(return_type.span, "Invalid return type"));
-        }
+        let result = if self.symbol("-|") {
+            self.advance();
+            FunctionResult::NoValue
+        } else {
+            if !self.symbol("->") {
+                return Err(Diagnostic::new(
+                    self.current().span,
+                    "Expected '->' or '-|' after function parameters",
+                ));
+            }
+            self.advance();
+            let ty = self.parse_type()?;
+            if !valid_type(&ty.name) {
+                return Err(Diagnostic::new(ty.span, "Invalid return type"));
+            }
+            FunctionResult::Value(ty)
+        };
         let body = self.parse_block()?;
         Ok(Statement::Function(FunctionDef {
             name,
             parameters,
-            return_type,
+            result,
             body,
         }))
     }
@@ -1002,14 +1475,10 @@ impl Parser {
         let body = self.parse_block()?;
 
         let mut branches = vec![(condition, body)];
-        let mut otherwise_body = None;
+        let mut else_body = None;
 
         loop {
-            let saved = self.pos;
-            self.skip_newlines();
-
-            if !self.identifier_is("otherwise") {
-                self.pos = saved;
+            if !self.identifier_is("else") {
                 break;
             }
 
@@ -1023,14 +1492,14 @@ impl Parser {
 
                 branches.push((condition, body));
             } else {
-                otherwise_body = Some(self.parse_block()?);
+                else_body = Some(self.parse_block()?);
                 break;
             }
         }
 
         Ok(Statement::If {
             branches,
-            otherwise_body,
+            else_body,
         })
     }
 
@@ -1068,10 +1537,24 @@ impl Parser {
         let span = self.current().span;
         let kind = self.parse_statement_kind()?;
 
+        let span = if matches!(kind, Statement::Expression(_)) {
+            span.through(self.tokens[self.pos - 1].span)
+        } else {
+            span
+        };
         Ok(Stmt { kind, span })
     }
 
     fn parse_statement_kind(&mut self) -> EResult<Statement> {
+        if self.current().kind == TokenKind::Discard {
+            let marker = self.advance();
+            if !self.symbol("=") {
+                return Err(Diagnostic::new(marker.span, DISCARD_POSITION));
+            }
+            self.advance();
+            return Ok(Statement::Discard(self.parse_expression(0)?));
+        }
+
         if self.identifier_is("import") {
             self.advance(); // 'import'
 
@@ -1112,15 +1595,28 @@ impl Parser {
             return self.parse_loop();
         }
 
-        if self.identifier_is("otherwise") {
+        if self.identifier_is("else") {
             return Err(Diagnostic::new(
                 self.current().span,
-                "'otherwise' without a preceding 'if'",
+                "'else' without a preceding 'if' at this indentation",
             ));
         }
 
-        if self.identifier_is("return") {
+        if self.identifier_is("break") {
             self.advance();
+            return Ok(Statement::Break);
+        }
+
+        if self.identifier_is("skip") {
+            self.advance();
+            return Ok(Statement::Skip);
+        }
+
+        if self.identifier_is("return") {
+            let keyword = self.advance();
+            if self.current().kind == TokenKind::Discard {
+                return Err(Diagnostic::new(self.current().span, DISCARD_POSITION));
+            }
 
             let starts_with_type = matches!(
                 &self.current().kind,
@@ -1133,8 +1629,8 @@ impl Parser {
 
             if !starts_with_type {
                 return Err(Diagnostic::new(
-                    self.current().span,
-                    "Expected a return type after 'return' (e.g. 'return int x')",
+                    keyword.span,
+                    "Expected 'return T expression' in a value-returning function. Functions declared with '-|' forbid 'return'",
                 ));
             }
 
@@ -1147,48 +1643,40 @@ impl Parser {
             });
         }
 
-        if matches!(&self.current().kind, TokenKind::Identifier(_)) {
-            let is_declaration = if let TokenKind::Identifier(t) = self.look(1) {
-                if t == "ls" {
-                    matches!(
-                        self.look(2),
-                        TokenKind::Symbol(s) if s == "<"
-                    )
-                } else {
-                    matches!(
-                        self.look(2),
-                        TokenKind::Symbol(s) if s == ":="
-                    )
-                }
-            } else {
-                false
-            };
-
+        if let TokenKind::Identifier(first) = &self.current().kind {
+            let known_type = matches!(
+                first.as_str(),
+                "int" | "flt" | "str" | "bool" | "none" | "type" | "ls"
+            );
+            let saved = self.pos;
+            let annotation = self.parse_type();
+            let is_declaration = annotation.is_ok()
+                && matches!(
+                    self.current().kind,
+                    TokenKind::Identifier(_) | TokenKind::Discard
+                )
+                && (known_type || matches!(self.look(1), TokenKind::Symbol(op) if op == ":="));
             if is_declaration {
+                let declared_type = annotation?;
                 let name = self.expect_name()?;
                 check_reserved(&name)?;
-
-                let declared_type = self.parse_type()?;
-
-                if declared_type.name == "type" {
+                if type_contains(&declared_type.name, &Type::Meta) {
                     return Err(Diagnostic::new(
                         declared_type.span,
                         "Cannot declare a variable of type 'type'",
                     ));
                 }
-
                 if !valid_type(&declared_type.name) {
                     return Err(Diagnostic::new(declared_type.span, "Invalid variable type"));
                 }
-
                 self.expect_symbol(":=")?;
-
                 return Ok(Statement::Declare {
                     name,
                     declared_type,
                     value: self.parse_expression(0)?,
                 });
             }
+            self.pos = saved;
         }
 
         let expr = self.parse_expression(0)?;
@@ -1309,6 +1797,7 @@ impl Parser {
         let span = token.span;
 
         let kind = match token.kind {
+            TokenKind::Discard => return Err(Diagnostic::new(span, DISCARD_POSITION)),
             TokenKind::Integer(n) => ExprKind::Literal(Value::Int(n)),
             TokenKind::Float(n) => ExprKind::Literal(Value::Flt(n)),
             TokenKind::String(s) => ExprKind::Literal(Value::Str(s)),
@@ -1343,19 +1832,16 @@ impl Parser {
 
             TokenKind::Identifier(name) if name == "list" => {
                 let inner = self.parse_element_type()?;
-                self.expect_symbol("{")?;
-                self.skip_newlines();
+                let opening = self.expect_symbol("{")?;
 
                 let mut elements = Vec::new();
 
                 if !self.symbol("}") {
                     loop {
                         elements.push(self.parse_expression(0)?);
-                        self.skip_newlines();
 
                         if self.symbol(",") {
                             self.advance();
-                            self.skip_newlines();
 
                             if self.symbol("}") {
                                 break;
@@ -1366,6 +1852,14 @@ impl Parser {
                     }
                 }
 
+                let last = &self.tokens[self.pos - 1];
+                if self.symbol("}")
+                    && !elements.is_empty()
+                    && !last.symbol(",")
+                    && opening.span.line != self.current().span.line
+                {
+                    self.trailing_commas.push(last.bytes.end);
+                }
                 self.expect_symbol("}")?;
                 ExprKind::ListLiteral(inner, elements)
             }
@@ -1391,7 +1885,10 @@ impl Parser {
             TokenKind::Identifier(name) if name == "null" => ExprKind::Literal(Value::Null),
 
             TokenKind::Identifier(name) => {
-                if self.symbol(":") {
+                if self.symbol(":")
+                    && matches!(self.look(1), TokenKind::Identifier(_) | TokenKind::Discard)
+                    && self.tokens[self.pos + 1].bytes.start == self.current().bytes.end
+                {
                     let colon_span = self.current().span;
 
                     if span.line != colon_span.line
@@ -1416,18 +1913,15 @@ impl Parser {
                     }
 
                     self.expect_symbol("(")?;
-                    self.skip_newlines();
 
                     let mut args = Vec::new();
 
                     if !self.symbol(")") {
                         loop {
                             args.push(self.parse_expression(0)?);
-                            self.skip_newlines();
 
                             if self.symbol(",") {
                                 self.advance();
-                                self.skip_newlines();
 
                                 if self.symbol(")") {
                                     break;
@@ -1446,18 +1940,15 @@ impl Parser {
                     }
                 } else if self.symbol("(") {
                     self.advance();
-                    self.skip_newlines();
 
                     let mut args = Vec::new();
 
                     if !self.symbol(")") {
                         loop {
                             args.push(self.parse_expression(0)?);
-                            self.skip_newlines();
 
                             if self.symbol(",") {
                                 self.advance();
-                                self.skip_newlines();
 
                                 if self.symbol(")") {
                                     break;
@@ -1516,7 +2007,7 @@ fn stmt_guarantees_return(stmt: &Stmt) -> bool {
 
         Statement::If {
             branches,
-            otherwise_body: Some(body),
+            else_body: Some(body),
         } => {
             !branches.is_empty()
                 && branches
@@ -1542,8 +2033,14 @@ struct VarInfo {
 
 struct FuncInfo {
     params: Vec<String>,
-    return_type: String,
+    result: FunctionResult<TypeAnn>,
     used: bool,
+    span: Span,
+}
+
+struct UnresolvedCall {
+    caller: Option<String>,
+    callee: String,
     span: Span,
 }
 
@@ -1551,10 +2048,13 @@ struct Checker {
     scopes: Vec<HashMap<String, VarInfo>>,
     functions: HashMap<String, FuncInfo>,
     function_order: Vec<String>,
-    current_function: Option<(String, String)>,
+    calls: HashMap<String, Vec<String>>,
+    unresolved_calls: Vec<UnresolvedCall>,
+    current_function: Option<(String, FunctionResult<TypeAnn>)>,
     errors: Vec<Diagnostic>,
     seen_non_import: bool,
     imported_paths: Vec<String>,
+    loop_depth: usize,
 }
 
 impl Checker {
@@ -1563,10 +2063,13 @@ impl Checker {
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
             function_order: Vec::new(),
+            calls: HashMap::new(),
+            unresolved_calls: Vec::new(),
             current_function: None,
             errors: Vec::new(),
             seen_non_import: false,
             imported_paths: Vec::new(),
+            loop_depth: 0,
         }
     }
 
@@ -1576,6 +2079,7 @@ impl Checker {
 
     fn check_program(mut self, program: &[Stmt]) -> Vec<Diagnostic> {
         self.check_block(program);
+        self.report_unresolved_calls();
 
         let module = self.scopes.pop().unwrap();
         self.report_unused(module);
@@ -1592,6 +2096,58 @@ impl Checker {
         self.errors.sort_by_key(|e| (e.span.line, e.span.column));
 
         self.errors
+    }
+
+    fn report_unresolved_calls(&mut self) {
+        for call in std::mem::take(&mut self.unresolved_calls) {
+            let name = call.callee.as_str();
+            let message = if !self.functions.contains_key(name) {
+                format!("Unknown function '{}'", name)
+            } else if let Some(cycle) = call.caller.as_deref().and_then(|caller| {
+                self.call_path(name, caller)
+                    .map(|path| format!("{} -> {}", caller, path.join(" -> ")))
+            }) {
+                format!(
+                    "Recursive function calls are not allowed: {} ('{}' is declared after this call)",
+                    cycle, name
+                )
+            } else {
+                format!("Function '{}' must be declared before it is called", name)
+            };
+            self.err(call.span, message);
+        }
+    }
+
+    // A legal edge always points to an earlier declaration. Every indirect
+    // cycle therefore includes at least one unresolved forward edge. Look for
+    // a return path only for those edges, without affecting name resolution.
+    fn call_path<'a>(&'a self, from: &'a str, to: &str) -> Option<Vec<&'a str>> {
+        let mut pending = VecDeque::from([from]);
+        let mut predecessor = HashMap::from([(from, from)]);
+        while let Some(function) = pending.pop_front() {
+            if function == to {
+                let mut path = vec![function];
+                while *path.last().unwrap() != from {
+                    path.push(predecessor[path.last().unwrap()]);
+                }
+                path.reverse();
+                return Some(path);
+            }
+            for callee in self
+                .calls
+                .get(function)
+                .into_iter()
+                .flatten()
+                .map(String::as_str)
+            {
+                if let std::collections::hash_map::Entry::Vacant(entry) = predecessor.entry(callee)
+                {
+                    entry.insert(function);
+                    pending.push_back(callee);
+                }
+            }
+        }
+        None
     }
 
     fn report_unused(&mut self, scope: HashMap<String, VarInfo>) {
@@ -1653,11 +2209,16 @@ impl Checker {
         );
     }
 
-    fn target_type(&mut self, name: &Name) -> Option<String> {
+    fn assignment_target(&mut self, name: &Name) -> Option<(usize, String)> {
         for index in (0..self.scopes.len()).rev() {
             if let Some(info) = self.scopes[index].get(&name.text) {
-                let ty = info.ty.clone();
-
+                if info.kind == "module" {
+                    self.err(
+                        name.span,
+                        format!("'{}' is a module and cannot be assigned", name.text),
+                    );
+                    return None;
+                }
                 if index == 0 && self.current_function.is_some() {
                     self.err(
                         name.span,
@@ -1668,13 +2229,11 @@ impl Checker {
                     );
                     return None;
                 }
-
-                return ty;
+                return info.ty.clone().map(|ty| (index, ty));
             }
         }
 
         self.err(name.span, format!("Undefined variable '{}'", name.text));
-
         None
     }
 
@@ -1763,7 +2322,7 @@ impl Checker {
                 value,
             } => {
                 if let Some(ty) = self.expr_type(value) {
-                    if ty != declared_type.name {
+                    if !type_accepts(&declared_type.name, &ty) {
                         self.err(
                             value.span,
                             format!(
@@ -1779,10 +2338,12 @@ impl Checker {
 
             Statement::Assign { name, value } => {
                 let value_type = self.expr_type(value);
-                let target_type = self.target_type(name);
+                let target = self.assignment_target(name);
 
-                if let (Some(value_type), Some(target_type)) = (value_type, target_type) {
-                    if value_type != target_type {
+                if let (Some(value_type), Some((scope, target_type))) = (value_type, target) {
+                    if type_accepts(&target_type, &value_type) {
+                        self.scopes[scope].get_mut(&name.text).unwrap().used = true;
+                    } else {
                         self.err(
                             value.span,
                             format!(
@@ -1795,34 +2356,39 @@ impl Checker {
             }
 
             Statement::AssignIndex { name, index, value } => {
-                self.check_index_expr(index);
-
+                let valid_index = self.check_index_expr(index);
                 let value_type = self.expr_type(value);
-                let target_type = self.target_type(name);
+                let target = self.assignment_target(name);
 
-                if let Some(target_type) = target_type {
-                    match list_inner(&target_type) {
-                        Some(inner) => {
-                            if let Some(value_type) = value_type {
-                                if value_type != inner {
-                                    self.err(
-                                        value.span,
-                                        format!(
-                                            "Cannot assign {} to element of {}",
-                                            value_type, target_type
-                                        ),
-                                    );
-                                }
-                            }
+                if let Some((scope, target_type)) = target {
+                    if list_element_type(&target_type).is_none() {
+                        self.err(name.span, format!("Cannot index into {}", target_type));
+                    } else if let Some(value_type) = value_type {
+                        if !list_accepts_element(&target_type, &value_type) {
+                            self.err(
+                                value.span,
+                                format!(
+                                    "Cannot assign {} to element of {}",
+                                    value_type, target_type
+                                ),
+                            );
+                        } else if valid_index {
+                            self.scopes[scope].get_mut(&name.text).unwrap().used = true;
                         }
-
-                        None => self.err(name.span, format!("Cannot index into {}", target_type)),
                     }
                 }
             }
 
             Statement::Expression(expr) => {
-                self.expr_type(expr);
+                if matches!(self.expr_result(expr), Some(FunctionResult::Value(_))) {
+                    self.err(stmt.span, UNUSED_VALUE);
+                }
+            }
+
+            Statement::Discard(expr) => {
+                if matches!(self.expr_result(expr), Some(FunctionResult::NoValue)) {
+                    self.err(expr.span, NOTHING_TO_DISCARD);
+                }
             }
 
             Statement::Return {
@@ -1834,8 +2400,10 @@ impl Checker {
                 match self.current_function.clone() {
                     None => self.err(stmt.span, "return is only allowed inside a function"),
 
-                    Some((function, return_type)) => {
-                        if declared_type.name != return_type {
+                    Some((_, FunctionResult::NoValue)) => self.err(stmt.span, NO_VALUE_RETURN),
+                    Some((function, FunctionResult::Value(ty))) => {
+                        let return_type = ty.name;
+                        if !type_accepts(&return_type, &declared_type.name) {
                             self.err(
                                 declared_type.span,
                                 format!(
@@ -1848,7 +2416,7 @@ impl Checker {
                 }
 
                 if let Some(value_type) = value_type {
-                    if value_type != declared_type.name {
+                    if !type_accepts(&declared_type.name, &value_type) {
                         self.err(
                             value.span,
                             format!(
@@ -1860,23 +2428,39 @@ impl Checker {
                 }
             }
 
+            Statement::Break | Statement::Skip => {
+                if self.loop_depth == 0 {
+                    let keyword = if matches!(&stmt.kind, Statement::Break) {
+                        "break"
+                    } else {
+                        "skip"
+                    };
+                    self.err(
+                        stmt.span,
+                        format!("'{}' is only allowed inside a loop", keyword),
+                    );
+                }
+            }
+
             Statement::If {
                 branches,
-                otherwise_body,
+                else_body,
             } => {
                 for (condition, body) in branches {
                     self.expect_bool(condition, "if");
                     self.check_scoped_block(body);
                 }
 
-                if let Some(body) = otherwise_body {
+                if let Some(body) = else_body {
                     self.check_scoped_block(body);
                 }
             }
 
             Statement::While { condition, body } => {
                 self.expect_bool(condition, "loop");
+                self.loop_depth += 1;
                 self.check_scoped_block(body);
+                self.loop_depth -= 1;
             }
 
             Statement::CycleIn {
@@ -1885,7 +2469,7 @@ impl Checker {
                 body,
             } => {
                 let item_type = match self.expr_type(list_expr) {
-                    Some(ty) => match list_inner(&ty) {
+                    Some(ty) => match list_element_type(&ty) {
                         Some(inner) => Some(inner.to_string()),
 
                         None => {
@@ -1904,7 +2488,9 @@ impl Checker {
                 // expression has a wrong type.
                 self.scopes.push(HashMap::new());
                 self.declare(item_name, item_type, "loop variable");
+                self.loop_depth += 1;
                 self.check_block(body);
+                self.loop_depth -= 1;
 
                 let scope = self.scopes.pop().unwrap();
                 self.report_unused(scope);
@@ -1933,7 +2519,7 @@ impl Checker {
                     .iter()
                     .map(|p| p.declared_type.name.clone())
                     .collect(),
-                return_type: definition.return_type.name.clone(),
+                result: definition.result.clone(),
                 used: false,
                 span: name.span,
             },
@@ -1941,7 +2527,10 @@ impl Checker {
 
         self.function_order.push(name.text.clone());
 
-        self.current_function = Some((name.text.clone(), definition.return_type.name.clone()));
+        self.current_function = Some((name.text.clone(), definition.result.clone()));
+
+        let enclosing_loop_depth = self.loop_depth;
+        self.loop_depth = 0;
 
         self.scopes.push(HashMap::new());
 
@@ -1955,7 +2544,9 @@ impl Checker {
 
         self.check_block(&definition.body);
 
-        if !block_guarantees_return(&definition.body) {
+        if matches!(definition.result, FunctionResult::Value(_))
+            && !block_guarantees_return(&definition.body)
+        {
             self.err(
                 name.span,
                 format!(
@@ -1968,9 +2559,11 @@ impl Checker {
         let scope = self.scopes.pop().unwrap();
         self.report_unused(scope);
         self.current_function = None;
+        self.loop_depth = enclosing_loop_depth;
     }
 
-    fn check_index_expr(&mut self, index: &Expr) {
+    fn check_index_expr(&mut self, index: &Expr) -> bool {
+        let previous_errors = self.errors.len();
         match &index.kind {
             ExprKind::Literal(Value::Int(n)) if *n <= 0 => {
                 self.err(index.span, "Index must be positive and non-zero");
@@ -1982,14 +2575,40 @@ impl Checker {
             }
             _ => {}
         }
-        if let Some(ty) = self.expr_type(index) {
-            if ty != "int" {
-                self.err(index.span, format!("Index must be int, got {}", ty));
+        let Some(ty) = self.expr_type(index) else {
+            return false;
+        };
+        if !type_accepts("int", &ty) {
+            self.err(index.span, format!("Index must be int, got {}", ty));
+        }
+        self.errors.len() == previous_errors
+    }
+
+    /// Type of an operand in a context that requires a value.
+    fn expr_type(&mut self, expr: &Expr) -> Option<String> {
+        match self.expr_result(expr)? {
+            FunctionResult::Value(ty) => Some(ty),
+            FunctionResult::NoValue => {
+                self.err(expr.span, VALUE_REQUIRED);
+                None
             }
         }
     }
 
-    fn expr_type(&mut self, expr: &Expr) -> Option<String> {
+    fn expr_result(&mut self, expr: &Expr) -> Option<FunctionResult<String>> {
+        // Some operations know their result type even when an operand is invalid.
+        // Keep the operand's diagnostic without reporting a second usage error.
+        let errors = self.errors.len();
+        let unresolved = self.unresolved_calls.len();
+        let result = self.infer_result(expr);
+        if self.errors.len() == errors && self.unresolved_calls.len() == unresolved {
+            result
+        } else {
+            None
+        }
+    }
+
+    fn infer_result(&mut self, expr: &Expr) -> Option<FunctionResult<String>> {
         match &expr.kind {
             ExprKind::Literal(value) => Some(value.type_name()),
 
@@ -2006,7 +2625,7 @@ impl Checker {
             ExprKind::ListLiteral(inner, elements) => {
                 for element in elements {
                     if let Some(ty) = self.expr_type(element) {
-                        if ty != *inner {
+                        if !type_accepts(inner, &ty) {
                             self.err(
                                 element.span,
                                 format!(
@@ -2026,7 +2645,9 @@ impl Checker {
 
                 for scope in self.scopes.iter_mut().rev() {
                     if let Some(info) = scope.get_mut(name) {
-                        info.used = true;
+                        if info.kind != "module" {
+                            info.used = true;
+                        }
                         found = Some((info.kind, info.ty.clone()));
                         break;
                     }
@@ -2068,8 +2689,9 @@ impl Checker {
             }
 
             ExprKind::Binary(left, op, right) => {
-                let a = self.expr_type(left)?;
-                let b = self.expr_type(right)?;
+                let a = self.expr_type(left);
+                let b = self.expr_type(right);
+                let (a, b) = (a?, b?);
                 let numeric = |t: &str| t == "int" || t == "flt";
                 let result = match op.as_str() {
                     "+" | "-" | "*" | "%" | "^" if a == b && numeric(&a) => a.as_str(),
@@ -2082,7 +2704,7 @@ impl Checker {
                     {
                         "bool"
                     }
-                    "==" | "!=" if list_inner(&a).is_some() && a == b => "bool",
+                    "==" | "!=" if is_list_type(&a) && a == b => "bool",
                     _ => {
                         self.err(
                             expr.span,
@@ -2100,43 +2722,47 @@ impl Checker {
 
                 let array_type = array_type?;
 
-                match list_inner(&array_type) {
-                    Some(inner) => Some(inner.to_string()),
+                if array_type == "str" {
+                    Some("str".into())
+                } else {
+                    match list_element_type(&array_type) {
+                        Some(inner) => Some(inner),
 
-                    None => {
-                        self.err(array.span, format!("Cannot index into {}", array_type));
-                        None
+                        None => {
+                            self.err(array.span, format!("Cannot index into {}", array_type));
+                            None
+                        }
                     }
                 }
             }
 
-            ExprKind::Call(name, args) => self.call_type(name, args, expr.span),
+            ExprKind::Call(name, args) => return self.call_type(name, args, expr.span),
 
             ExprKind::ModuleCall {
                 module,
                 function,
                 args,
             } => {
-                let mut found_path = None;
-
-                for scope in self.scopes.iter_mut().rev() {
-                    if let Some(info) = scope.get_mut(&module.text) {
+                let binding = self
+                    .scopes
+                    .iter_mut()
+                    .rev()
+                    .find_map(|scope| scope.get_mut(&module.text));
+                let path = match binding {
+                    Some(info) if info.kind == "module" => {
                         info.used = true;
-
-                        if info.kind == "module" {
-                            found_path = info.ty.clone();
-                        } else {
-                            self.err(module.span, format!("'{}' is not a module", module.text));
-                            return None;
-                        }
-                        break;
+                        info.ty.clone().unwrap()
                     }
-                }
-
-                let path = match found_path {
-                    Some(p) => p,
-                    None => {
-                        self.err(module.span, format!("Undefined module '{}'", module.text));
+                    other => {
+                        let message = if other.is_some() {
+                            format!("'{}' is not a module", module.text)
+                        } else {
+                            format!("Undefined module '{}'", module.text)
+                        };
+                        self.err(module.span, message);
+                        for arg in args {
+                            self.expr_type(arg);
+                        }
                         return None;
                     }
                 };
@@ -2149,6 +2775,7 @@ impl Checker {
                 }
             }
         }
+        .map(FunctionResult::Value)
     }
 
     fn expect_count(&mut self, name: &str, args: &[Expr], count: usize, span: Span) -> bool {
@@ -2296,6 +2923,55 @@ impl Checker {
                 Some("str".into())
             }
 
+            "AlphabetRange" => {
+                if self.expect_count_mod(&full_name, args, 2, span) {
+                    check_str(self, &args[0]);
+                    check_str(self, &args[1]);
+
+                    let start = match &args[0].kind {
+                        ExprKind::Literal(Value::Str(text)) => match ascii_letter_byte(text) {
+                            Some(value) => Some(value),
+                            None => {
+                                self.err(
+                                    args[0].span,
+                                    "AlphabetRange() start must be exactly one ASCII letter (A-Z or a-z)",
+                                );
+                                None
+                            }
+                        },
+                        _ => None,
+                    };
+
+                    let end = match &args[1].kind {
+                        ExprKind::Literal(Value::Str(text)) => match ascii_letter_byte(text) {
+                            Some(value) => Some(value),
+                            None => {
+                                self.err(
+                                    args[1].span,
+                                    "AlphabetRange() end must be exactly one ASCII letter (A-Z or a-z)",
+                                );
+                                None
+                            }
+                        },
+                        _ => None,
+                    };
+
+                    if let (Some(start), Some(end)) = (start, end) {
+                        if start.is_ascii_uppercase() != end.is_ascii_uppercase() {
+                            self.err(span, "AlphabetRange() endpoints must use the same case");
+                        }
+                    }
+                }
+                Some("str".into())
+            }
+
+            "IsAsciiUppercase" | "IsAsciiLowercase" => {
+                if self.expect_count_mod(&full_name, args, 1, span) {
+                    check_str(self, &args[0]);
+                }
+                Some("bool".into())
+            }
+
             "Repeat" => {
                 if self.expect_count_mod(&full_name, args, 2, span) {
                     check_str(self, &args[0]);
@@ -2332,6 +3008,9 @@ impl Checker {
                     function.span,
                     format!("Unknown function '{}' in module 'strings'", function.text),
                 );
+                for arg in args {
+                    self.expr_type(arg);
+                }
                 None
             }
         }
@@ -2455,7 +3134,10 @@ impl Checker {
         span: Span,
     ) -> Option<String> {
         let name = function.text.as_str();
-        if name != "Convert" && name != "IsConvertible" {
+        if !matches!(
+            name,
+            "Convert" | "IsConvertible" | "DeclaredTypeOf" | "CurrentTypeOf"
+        ) {
             self.err(
                 function.span,
                 format!("Unknown function '{}' in module 'types'", name),
@@ -2465,9 +3147,30 @@ impl Checker {
             }
             return None;
         }
-        if !self.expect_count_mod(&format!("{}:{}()", module.text, name), args, 2, span) {
+        let arity = if matches!(name, "DeclaredTypeOf" | "CurrentTypeOf") {
+            1
+        } else {
+            2
+        };
+        if !self.expect_count_mod(&format!("{}:{}()", module.text, name), args, arity, span) {
             return None;
         }
+
+        if name == "DeclaredTypeOf" {
+            if !matches!(&args[0].kind, ExprKind::Variable(_)) {
+                self.err(args[0].span, "DeclaredTypeOf() requires a variable");
+                self.expr_type(&args[0]);
+                return None;
+            }
+            self.expr_type(&args[0])?;
+            return Some("type".into());
+        }
+
+        if name == "CurrentTypeOf" {
+            self.expr_type(&args[0])?;
+            return Some("type".into());
+        }
+
         let source = self.expr_type(&args[0]);
         self.expr_type(&args[1]);
         let target = match &args[1].kind {
@@ -2475,7 +3178,7 @@ impl Checker {
             _ => {
                 self.err(
                     args[1].span,
-                    "The conversion target must be a literal int, flt, str or bool",
+                    "The conversion target must be a literal int, flt, str, bool or ls<str>",
                 );
                 return None;
             }
@@ -2495,14 +3198,19 @@ impl Checker {
         }
     }
 
-    fn call_type(&mut self, name: &str, args: &[Expr], span: Span) -> Option<String> {
+    fn call_type(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<FunctionResult<String>> {
         match name {
-            "Output" | "TypeOf" => {
+            "Output" => {
                 if self.expect_count(name, args, 1, span) {
                     self.expr_type(&args[0]);
                 }
 
-                Some(if name == "Output" { "none" } else { "type" }.into())
+                return Some(FunctionResult::NoValue);
             }
 
             "Input" => {
@@ -2526,9 +3234,9 @@ impl Checker {
                     let needle = self.expr_type(&args[1]);
 
                     if let (Some(haystack), Some(needle)) = (haystack, needle) {
-                        match list_inner(&haystack) {
-                            Some(inner) => {
-                                if needle != inner {
+                        match list_element_type(&haystack) {
+                            Some(_) => {
+                                if !list_accepts_element(&haystack, &needle) {
                                     self.err(
                                         args[1].span,
                                         format!(
@@ -2540,7 +3248,7 @@ impl Checker {
                             }
 
                             None if haystack == "str" => {
-                                if needle != "str" {
+                                if !type_accepts("str", &needle) {
                                     self.err(
                                         args[1].span,
                                         format!(
@@ -2575,7 +3283,7 @@ impl Checker {
             "Length" => {
                 if self.expect_count(name, args, 1, span) {
                     if let Some(ty) = self.expr_type(&args[0]) {
-                        if ty != "str" && list_inner(&ty).is_none() {
+                        if !type_accepts("str", &ty) && list_element_type(&ty).is_none() {
                             self.err(
                                 args[0].span,
                                 format!("Length() requires a string or list, got {}", ty),
@@ -2605,23 +3313,19 @@ impl Checker {
 
                 let list_type = list_type?;
 
-                let inner = match list_inner(&list_type) {
-                    Some(inner) => inner,
-
-                    None => {
-                        self.err(
-                            args[0].span,
-                            format!(
-                                "{}() expects a list as first argument, got {}",
-                                name, list_type
-                            ),
-                        );
-                        return None;
-                    }
-                };
+                if list_element_type(&list_type).is_none() {
+                    self.err(
+                        args[0].span,
+                        format!(
+                            "{}() expects a list as first argument, got {}",
+                            name, list_type
+                        ),
+                    );
+                    return None;
+                }
 
                 if let Some(ty) = value_type {
-                    if ty != inner {
+                    if !list_accepts_element(&list_type, &ty) {
                         self.err(
                             args[2].span,
                             format!("Cannot insert {} into {}", ty, list_type),
@@ -2636,25 +3340,29 @@ impl Checker {
                 let arg_types: Vec<Option<String>> =
                     args.iter().map(|arg| self.expr_type(arg)).collect();
 
-                let recursive = matches!(
-                    &self.current_function,
-                    Some((current, _)) if current == name
-                );
+                let caller = self.current_function.as_ref().map(|(name, _)| name.clone());
+                if caller.as_deref() == Some(name) {
+                    self.err(span, format!("Function '{}' cannot call itself", name));
+                    return None;
+                }
+                if let Some(caller) = &caller {
+                    self.calls
+                        .entry(caller.clone())
+                        .or_default()
+                        .push(name.into());
+                }
 
-                let (params, return_type) = match self.functions.get_mut(name) {
-                    Some(info) => {
-                        if !recursive {
-                            info.used = true;
-                        }
-
-                        (info.params.clone(), info.return_type.clone())
-                    }
-
-                    None => {
-                        self.err(span, format!("Unknown function '{}'", name));
-                        return None;
-                    }
+                let Some(info) = self.functions.get_mut(name) else {
+                    self.unresolved_calls.push(UnresolvedCall {
+                        caller,
+                        callee: name.into(),
+                        span,
+                    });
+                    return None;
                 };
+                info.used = true;
+                let params = info.params.clone();
+                let result = info.result.clone();
 
                 if args.len() != params.len() {
                     self.err(
@@ -2675,7 +3383,7 @@ impl Checker {
                     .enumerate()
                 {
                     if let Some(ty) = ty {
-                        if ty != expected {
+                        if !type_accepts(expected, ty) {
                             self.err(
                                 arg.span,
                                 format!(
@@ -2690,9 +3398,12 @@ impl Checker {
                     }
                 }
 
-                Some(return_type)
+                return Some(match result {
+                    FunctionResult::Value(ty) => FunctionResult::Value(ty.name),
+                    FunctionResult::NoValue => FunctionResult::NoValue,
+                });
             }
-        }
+        }.map(FunctionResult::Value)
     }
 }
 
@@ -2705,10 +3416,17 @@ struct Variable {
     value: Value,
 }
 
+enum ExecFlow {
+    Continue,
+    Return(Value),
+    Break,
+    Skip,
+}
+
 struct Interpreter {
     scopes: Vec<HashMap<String, Variable>>,
     functions: HashMap<String, FunctionDef>,
-    return_types: Vec<String>,
+    return_types: Vec<FunctionResult<TypeAnn>>,
 }
 
 fn resolve_index(n: i64, length: usize, is_insert: bool, span: Span) -> EResult<usize> {
@@ -2770,9 +3488,9 @@ fn exact_integer_quotient(a: i64, b: i64) -> Option<f64> {
     result.is_finite().then_some(result)
 }
 
-// Type conversion is explicit; conversion to/from lists and none is unsupported.
+// Type conversion is explicit; only str -> ls<str> is supported for lists in 0.2.0.
 fn simple_convert_target(target: &str) -> bool {
-    matches!(target, "int" | "flt" | "str" | "bool")
+    matches!(target, "int" | "flt" | "str" | "bool" | "ls<str>")
 }
 
 fn supported_conversion(source: &str, target: &str) -> bool {
@@ -2785,6 +3503,7 @@ fn supported_conversion(source: &str, target: &str) -> bool {
         ("flt", "int" | "str") => true,
         ("str", "int" | "flt" | "bool") => true,
         ("bool", "str") => true,
+        ("str", "ls<str>") => true,
         _ => false,
     }
 }
@@ -2823,6 +3542,12 @@ fn convert_value(value: &Value, target: &str) -> Option<Value> {
             _ => None,
         },
         (Value::Bool(n), "str") => Some(Value::Str(n.to_string())),
+        (Value::Str(text), "ls<str>") => Some(Value::List(
+            "str".into(),
+            text.chars()
+                .map(|character| Value::Str(character.to_string()))
+                .collect(),
+        )),
         _ => None,
     }
 }
@@ -2902,11 +3627,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn run_scoped(
-        &mut self,
-        body: &[Stmt],
-        scope: HashMap<String, Variable>,
-    ) -> EResult<Option<Value>> {
+    fn run_scoped(&mut self, body: &[Stmt], scope: HashMap<String, Variable>) -> EResult<ExecFlow> {
         self.scopes.push(scope);
 
         let result = self.execute_block(body);
@@ -2915,17 +3636,18 @@ impl Interpreter {
         result
     }
 
-    fn execute_block(&mut self, statements: &[Stmt]) -> EResult<Option<Value>> {
+    fn execute_block(&mut self, statements: &[Stmt]) -> EResult<ExecFlow> {
         for stmt in statements {
-            if let Some(value) = self.execute_stmt(stmt)? {
-                return Ok(Some(value));
+            let flow = self.execute_stmt(stmt)?;
+            if !matches!(flow, ExecFlow::Continue) {
+                return Ok(flow);
             }
         }
 
-        Ok(None)
+        Ok(ExecFlow::Continue)
     }
 
-    fn execute_stmt(&mut self, stmt: &Stmt) -> EResult<Option<Value>> {
+    fn execute_stmt(&mut self, stmt: &Stmt) -> EResult<ExecFlow> {
         match &stmt.kind {
             Statement::Import { path, alias } => {
                 let scope = self.scopes.last_mut().unwrap();
@@ -2966,7 +3688,7 @@ impl Interpreter {
             } => {
                 let evaluated = self.evaluate(value)?;
 
-                if evaluated.type_name() != declared_type.name {
+                if !type_accepts(&declared_type.name, &evaluated.type_name()) {
                     return Err(Diagnostic::new(
                         value.span,
                         format!(
@@ -3000,7 +3722,7 @@ impl Interpreter {
                 let new_value = self.evaluate(value)?;
                 let variable = self.target_mut(name)?;
 
-                if new_value.type_name() != variable.declared_type {
+                if !type_accepts(&variable.declared_type, &new_value.type_name()) {
                     return Err(Diagnostic::new(
                         value.span,
                         format!(
@@ -3022,7 +3744,7 @@ impl Interpreter {
 
                 match &mut variable.value {
                     Value::List(inner, elements) => {
-                        if new_value.type_name() != *inner {
+                        if !type_accepts(inner, &new_value.type_name()) {
                             return Err(Diagnostic::new(
                                 value.span,
                                 format!(
@@ -3059,7 +3781,14 @@ impl Interpreter {
             }
 
             Statement::Expression(expr) => {
-                self.evaluate(expr)?;
+                if matches!(self.evaluate_result(expr)?, FunctionResult::Value(_)) {
+                    return Err(Diagnostic::new(stmt.span, UNUSED_VALUE));
+                }
+            }
+            Statement::Discard(expr) => {
+                if matches!(self.evaluate_result(expr)?, FunctionResult::NoValue) {
+                    return Err(Diagnostic::new(expr.span, NOTHING_TO_DISCARD));
+                }
             }
 
             Statement::Return {
@@ -3070,7 +3799,11 @@ impl Interpreter {
                     Diagnostic::new(stmt.span, "return is only allowed inside a function")
                 })?;
 
-                if declared_type.name != expected {
+                let FunctionResult::Value(annotation) = expected else {
+                    return Err(Diagnostic::new(stmt.span, NO_VALUE_RETURN));
+                };
+                let expected = annotation.name;
+                if !type_accepts(&expected, &declared_type.name) {
                     return Err(Diagnostic::new(
                         declared_type.span,
                         format!(
@@ -3082,7 +3815,7 @@ impl Interpreter {
 
                 let result = self.evaluate(value)?;
 
-                if result.type_name() != declared_type.name {
+                if !type_accepts(&declared_type.name, &result.type_name()) {
                     return Err(Diagnostic::new(
                         value.span,
                         format!(
@@ -3093,12 +3826,16 @@ impl Interpreter {
                     ));
                 }
 
-                return Ok(Some(result));
+                return Ok(ExecFlow::Return(result));
             }
+
+            Statement::Break => return Ok(ExecFlow::Break),
+
+            Statement::Skip => return Ok(ExecFlow::Skip),
 
             Statement::If {
                 branches,
-                otherwise_body,
+                else_body,
             } => {
                 for (condition, body) in branches {
                     let matched = match self.evaluate(condition)? {
@@ -3117,7 +3854,7 @@ impl Interpreter {
                     }
                 }
 
-                if let Some(body) = otherwise_body {
+                if let Some(body) = else_body {
                     return self.run_scoped(body, HashMap::new());
                 }
             }
@@ -3138,8 +3875,11 @@ impl Interpreter {
                     break;
                 }
 
-                if let Some(value) = self.run_scoped(body, HashMap::new())? {
-                    return Ok(Some(value));
+                match self.run_scoped(body, HashMap::new())? {
+                    ExecFlow::Continue => {}
+                    ExecFlow::Return(value) => return Ok(ExecFlow::Return(value)),
+                    ExecFlow::Break => break,
+                    ExecFlow::Skip => continue,
                 }
             },
 
@@ -3171,17 +3911,27 @@ impl Interpreter {
                         },
                     );
 
-                    if let Some(value) = self.run_scoped(body, scope)? {
-                        return Ok(Some(value));
+                    match self.run_scoped(body, scope)? {
+                        ExecFlow::Continue => {}
+                        ExecFlow::Return(value) => return Ok(ExecFlow::Return(value)),
+                        ExecFlow::Break => break,
+                        ExecFlow::Skip => continue,
                     }
                 }
             }
         }
 
-        Ok(None)
+        Ok(ExecFlow::Continue)
     }
 
     fn evaluate(&mut self, expr: &Expr) -> EResult<Value> {
+        match self.evaluate_result(expr)? {
+            FunctionResult::Value(value) => Ok(value),
+            FunctionResult::NoValue => Err(Diagnostic::new(expr.span, VALUE_REQUIRED)),
+        }
+    }
+
+    fn evaluate_result(&mut self, expr: &Expr) -> EResult<FunctionResult<Value>> {
         match &expr.kind {
             ExprKind::Literal(value) => Ok(value.clone()),
 
@@ -3209,7 +3959,7 @@ impl Interpreter {
                 for element in elements {
                     let value = self.evaluate(element)?;
 
-                    if value.type_name() != *inner {
+                    if !type_accepts(inner, &value.type_name()) {
                         return Err(Diagnostic::new(
                             element.span,
                             format!(
@@ -3244,17 +3994,6 @@ impl Interpreter {
                 let array_value = self.evaluate(array)?;
                 let index_value = self.evaluate(index)?;
 
-                let elements = match array_value {
-                    Value::List(_, elements) => elements,
-
-                    other => {
-                        return Err(Diagnostic::new(
-                            array.span,
-                            format!("Cannot index into {}", other.type_name()),
-                        ));
-                    }
-                };
-
                 let n = match index_value {
                     Value::Int(n) => n,
 
@@ -3266,9 +4005,27 @@ impl Interpreter {
                     }
                 };
 
-                let index = resolve_index(n, elements.len(), false, index.span)?;
+                match array_value {
+                    Value::List(_, elements) => {
+                        let index = resolve_index(n, elements.len(), false, index.span)?;
+                        Ok(elements[index].clone())
+                    }
 
-                Ok(elements[index].clone())
+                    Value::Str(text) => {
+                        let length = text.chars().count();
+                        let index = resolve_index(n, length, false, index.span)?;
+                        let character = text
+                            .chars()
+                            .nth(index)
+                            .expect("Resolved string index must be in bounds");
+                        Ok(Value::Str(character.to_string()))
+                    }
+
+                    other => Err(Diagnostic::new(
+                        array.span,
+                        format!("Cannot index into {}", other.type_name()),
+                    )),
+                }
             }
 
             ExprKind::Unary(op, operand) => {
@@ -3295,8 +4052,8 @@ impl Interpreter {
                 let a = self.evaluate(left)?;
                 if op == "&&" || op == "||" {
                     match &a {
-                        Value::Bool(false) if op == "&&" => return Ok(Value::Bool(false)),
-                        Value::Bool(true) if op == "||" => return Ok(Value::Bool(true)),
+                        Value::Bool(false) if op == "&&" => return Ok(FunctionResult::Value(Value::Bool(false))),
+                        Value::Bool(true) if op == "||" => return Ok(FunctionResult::Value(Value::Bool(true))),
                         Value::Bool(_) => {}
                         other => {
                             return Err(Diagnostic::new(
@@ -3401,7 +4158,7 @@ impl Interpreter {
                 Ok(result)
             }
 
-            ExprKind::Call(name, args) => self.call(name, args, expr.span),
+            ExprKind::Call(name, args) => return self.call(name, args, expr.span),
 
             ExprKind::ModuleCall {
                 module,
@@ -3440,7 +4197,7 @@ impl Interpreter {
                     )),
                 }
             }
-        }
+        }.map(FunctionResult::Value)
     }
 
     fn check_count(name: &str, actual: usize, expected: usize, span: Span) -> EResult<()> {
@@ -3471,9 +4228,10 @@ impl Interpreter {
         }
 
         let expected = match function.text.as_str() {
-            "Trim" | "Split" | "StartsWith" | "EndsWith" | "Repeat" => 2,
+            "Trim" | "Split" | "StartsWith" | "EndsWith" | "Repeat" | "AlphabetRange" => 2,
             "Replace" => 3,
-            "ToLowerCase" | "ToUpperCase" | "Capitalize" => 1,
+            "ToLowerCase" | "ToUpperCase" | "Capitalize" | "IsAsciiUppercase"
+            | "IsAsciiLowercase" => 1,
             _ => {
                 return Err(Diagnostic::new(
                     function.span,
@@ -3602,6 +4360,30 @@ impl Interpreter {
                 } else {
                     Ok(Value::Bool(text.ends_with(part.as_str())))
                 }
+            }
+
+            "AlphabetRange" => {
+                let from = as_str(&vals[0].0, vals[0].1)?;
+                let to = as_str(&vals[1].0, vals[1].1)?;
+
+                match ascii_alphabet_range(&from, &to) {
+                    Ok(result) => Ok(Value::Str(result)),
+                    Err(message) => Err(Diagnostic::new(span, message)),
+                }
+            }
+
+            "IsAsciiUppercase" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                Ok(Value::Bool(
+                    !text.is_empty() && text.chars().all(|ch| ch.is_ascii_uppercase()),
+                ))
+            }
+
+            "IsAsciiLowercase" => {
+                let text = as_str(&vals[0].0, vals[0].1)?;
+                Ok(Value::Bool(
+                    !text.is_empty() && text.chars().all(|ch| ch.is_ascii_lowercase()),
+                ))
             }
 
             "ToLowerCase" => {
@@ -3833,20 +4615,59 @@ impl Interpreter {
         span: Span,
     ) -> EResult<Value> {
         let name = function.text.as_str();
-        if name != "Convert" && name != "IsConvertible" {
+        if !matches!(
+            name,
+            "Convert" | "IsConvertible" | "DeclaredTypeOf" | "CurrentTypeOf"
+        ) {
             return Err(Diagnostic::new(
                 function.span,
                 format!("Unknown function '{}' in module 'types'", name),
             ));
         }
-        Self::check_count(&format!("{}:{}", module.text, name), args.len(), 2, span)?;
+
+        let arity = if matches!(name, "DeclaredTypeOf" | "CurrentTypeOf") {
+            1
+        } else {
+            2
+        };
+        Self::check_count(
+            &format!("{}:{}", module.text, name),
+            args.len(),
+            arity,
+            span,
+        )?;
+
+        if name == "DeclaredTypeOf" {
+            let variable_name = match &args[0].kind {
+                ExprKind::Variable(variable_name) => variable_name,
+                _ => {
+                    return Err(Diagnostic::new(
+                        args[0].span,
+                        "DeclaredTypeOf() requires a variable",
+                    ));
+                }
+            };
+            let variable = self.lookup(variable_name).ok_or_else(|| {
+                Diagnostic::new(
+                    args[0].span,
+                    format!("Undefined variable '{}'", variable_name),
+                )
+            })?;
+            return Ok(Value::Type(variable.declared_type.clone()));
+        }
+
+        if name == "CurrentTypeOf" {
+            let value = self.evaluate(&args[0])?;
+            return Ok(Value::Type(value.type_name()));
+        }
+
         let source = self.evaluate(&args[0])?;
         let target = match &args[1].kind {
             ExprKind::Literal(Value::Type(target)) if simple_convert_target(target) => target,
             _ => {
                 return Err(Diagnostic::new(
                     args[1].span,
-                    "The conversion target must be a literal int, flt, str or bool",
+                    "The conversion target must be a literal int, flt, str, bool or ls<str>",
                 ));
             }
         };
@@ -3867,7 +4688,7 @@ impl Interpreter {
         }
     }
 
-    fn call(&mut self, name: &str, args: &[Expr], span: Span) -> EResult<Value> {
+    fn call(&mut self, name: &str, args: &[Expr], span: Span) -> EResult<FunctionResult<Value>> {
         match name {
             "Output" => {
                 Self::check_count(name, args.len(), 1, span)?;
@@ -3888,7 +4709,7 @@ impl Interpreter {
                     OUTPUT_LINE_OPEN.store(!text.ends_with('\n'), Ordering::Relaxed);
                 }
 
-                return Ok(Value::Null);
+                return Ok(FunctionResult::NoValue);
             }
 
             "Input" => {
@@ -3953,14 +4774,7 @@ impl Interpreter {
                     OUTPUT_LINE_OPEN.store(false, Ordering::Relaxed);
                 }
 
-                return Ok(Value::Str(line));
-            }
-
-            "TypeOf" => {
-                Self::check_count(name, args.len(), 1, span)?;
-
-                let value = self.evaluate(&args[0])?;
-                return Ok(Value::Type(value.type_name()));
+                return Ok(FunctionResult::Value(Value::Str(line)));
             }
 
             "Includes" => {
@@ -3996,7 +4810,7 @@ impl Interpreter {
                     }
 
                     Value::List(inner, elements) => {
-                        if needle.type_name() != inner {
+                        if !type_accepts(&inner, &needle.type_name()) {
                             return Err(Diagnostic::new(
                                 args[1].span,
                                 format!(
@@ -4017,7 +4831,8 @@ impl Interpreter {
                             other.type_name()
                         ),
                     )),
-                };
+                }
+                .map(FunctionResult::Value);
             }
 
             "Length" => {
@@ -4041,7 +4856,8 @@ impl Interpreter {
                             other.type_name()
                         ),
                     )),
-                };
+                }
+                .map(FunctionResult::Value);
             }
 
             "Insert" => {
@@ -4073,7 +4889,7 @@ impl Interpreter {
                     }
                 };
 
-                if element.type_name() != inner {
+                if !type_accepts(&inner, &element.type_name()) {
                     return Err(Diagnostic::new(
                         args[2].span,
                         format!("Cannot insert {} into ls<{}>", element.type_name(), inner),
@@ -4084,7 +4900,7 @@ impl Interpreter {
 
                 elements.insert(index, element);
 
-                return Ok(Value::List(inner, elements));
+                return Ok(FunctionResult::Value(Value::List(inner, elements)));
             }
 
             "Remove" => {
@@ -4119,7 +4935,7 @@ impl Interpreter {
 
                 elements.remove(index);
 
-                return Ok(Value::List(inner, elements));
+                return Ok(FunctionResult::Value(Value::List(inner, elements)));
             }
 
             _ => {}
@@ -4153,7 +4969,7 @@ impl Interpreter {
         // A function cannot see the caller's local variables.
         let saved_scopes = self.scopes.split_off(1);
 
-        self.return_types.push(definition.return_type.name.clone());
+        self.return_types.push(definition.result.clone());
 
         let result = self.call_inner(&definition, values);
 
@@ -4168,7 +4984,7 @@ impl Interpreter {
         &mut self,
         definition: &FunctionDef,
         values: Vec<(Value, Span)>,
-    ) -> EResult<Value> {
+    ) -> EResult<FunctionResult<Value>> {
         let mut frame = HashMap::new();
         let mut values = values.into_iter();
 
@@ -4183,7 +4999,7 @@ impl Interpreter {
                 )
             })?;
 
-            if value.type_name() != parameter.declared_type.name {
+            if !type_accepts(&parameter.declared_type.name, &value.type_name()) {
                 return Err(Diagnostic::new(
                     value_span,
                     format!(
@@ -4207,31 +5023,52 @@ impl Interpreter {
 
         self.scopes.push(frame);
 
-        let returned = self.execute_block(&definition.body)?;
+        let (annotation, value) = match self.execute_block(&definition.body)? {
+            ExecFlow::Return(value) => match &definition.result {
+                FunctionResult::Value(ty) => (ty, value),
+                FunctionResult::NoValue => {
+                    return Err(Diagnostic::new(definition.name.span, NO_VALUE_RETURN));
+                }
+            },
+            ExecFlow::Continue if matches!(definition.result, FunctionResult::NoValue) => {
+                return Ok(FunctionResult::NoValue);
+            }
+            ExecFlow::Continue => {
+                return Err(Diagnostic::new(
+                    definition.name.span,
+                    format!(
+                        "Function '{}' finished without return",
+                        definition.name.text
+                    ),
+                ));
+            }
+            ExecFlow::Break => {
+                return Err(Diagnostic::new(
+                    definition.name.span,
+                    "'break' cannot escape a function",
+                ));
+            }
+            ExecFlow::Skip => {
+                return Err(Diagnostic::new(
+                    definition.name.span,
+                    "'skip' cannot escape a function",
+                ));
+            }
+        };
 
-        let value = returned.ok_or_else(|| {
-            Diagnostic::new(
-                definition.name.span,
-                format!(
-                    "Function '{}' finished without return",
-                    definition.name.text
-                ),
-            )
-        })?;
-
-        if value.type_name() != definition.return_type.name {
+        if !type_accepts(&annotation.name, &value.type_name()) {
             return Err(Diagnostic::new(
-                definition.return_type.span,
+                annotation.span,
                 format!(
                     "Function '{}' declares return type {}, got {}",
                     definition.name.text,
-                    definition.return_type.name,
+                    annotation.name,
                     value.type_name()
                 ),
             ));
         }
 
-        Ok(value)
+        Ok(FunctionResult::Value(value))
     }
 }
 
@@ -4271,12 +5108,55 @@ fn execute(source: &str) -> Result<(), Failure> {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // Formatting needs valid syntax and also works on statically invalid code.
+    let format_check = args.len() == 4 && args[1] == "format" && args[2] == "--check";
+    let format_write = args.len() == 3 && args[1] == "format";
+
+    if format_check || format_write {
+        let path = if format_check { &args[3] } else { &args[2] };
+        let source = match fs::read_to_string(path) {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("Cannot read '{}': {}", path, error);
+                std::process::exit(1);
+            }
+        };
+
+        let formatted = match formatter::format(&source) {
+            Ok(formatted) => formatted,
+            Err(error) => {
+                print_diagnostic("EphoFMT error", path, &source, &error);
+                std::process::exit(1);
+            }
+        };
+
+        if format_check {
+            if formatted == source {
+                println!("OK: '{}' is formatted", path);
+            } else {
+                eprintln!("Not formatted: '{}'", path);
+                std::process::exit(1);
+            }
+        } else {
+            if formatted != source {
+                if let Err(error) = fs::write(path, formatted) {
+                    eprintln!("Cannot write '{}': {}", path, error);
+                    std::process::exit(1);
+                }
+            }
+            println!("Formatted '{}'", path);
+        }
+        return;
+    }
+
     if args.len() != 3 {
         eprintln!("Usage:");
         eprintln!("  epholang tokens <file.epho>");
         eprintln!("  epholang parse <file.epho>");
         eprintln!("  epholang check <file.epho>");
         eprintln!("  epholang run <file.epho>");
+        eprintln!("  epholang format <file.epho>");
+        eprintln!("  epholang format --check <file.epho>");
         std::process::exit(1);
     }
 
@@ -4341,9 +5221,21 @@ fn main() {
         std::process::exit(1);
     }
 }
+
 #[cfg(test)]
 mod stage1_tests {
     use super::*;
+
+    #[test]
+    fn return_markers_and_discard_tokens_are_unambiguous() {
+        let tokens = lex("-| -> - | || -/* gap */| _ _item item_").unwrap();
+        for (token, symbol) in tokens.iter().zip(["-|", "->", "-", "|", "||", "-", "|"]) {
+            assert!(token.symbol(symbol));
+        }
+        assert_eq!(tokens[7].kind, TokenKind::Discard);
+        assert_eq!(tokens[8].kind, TokenKind::Identifier("_item".into()));
+        assert_eq!(tokens[9].kind, TokenKind::Identifier("item_".into()));
+    }
 
     #[test]
     fn numeric_literals_have_distinct_types() {
@@ -4354,13 +5246,13 @@ mod stage1_tests {
 
     #[test]
     fn function_syntax_parses_and_checks() {
-        let program = "function Square(x int) int { return int x * x }\nOutput(Square(5))";
+        let program = "function Square(int x) -> int:\n\treturn int x * x\nOutput(Square(5))";
         assert!(check_source(program).is_ok());
     }
 
     #[test]
     fn default_parameters_are_rejected() {
-        let source = "function Bad(x int = 1) int { return int x }";
+        let source = "function Bad(int x = 1) -> int:\n\treturn int x";
         assert!(parse_source(source).is_err());
     }
 
@@ -4386,7 +5278,7 @@ mod stage1_tests {
     #[test]
     fn random_interval_inclusive_equal_bounds() {
         let source =
-            "import \"math\" as math\nvalue int := math:RandomInterval(7, 7)\nOutput(value)";
+            "import \"math\" as math\nint value := math:RandomInterval(7, 7)\nOutput(value)";
         assert!(check_source(source).is_ok());
         assert!(execute(source).is_ok());
     }
@@ -4400,8 +5292,26 @@ mod stage1_tests {
     #[test]
     fn integer_index_and_length() {
         let source =
-            "values ls<int> := list<int>{1, 2, 3}\nOutput(values[1])\nOutput(Length(values))";
+            "ls<int> values := list<int>{1, 2, 3}\nOutput(values[1])\nOutput(Length(values))";
         assert!(check_source(source).is_ok());
+    }
+}
+
+#[cfg(test)]
+fn evaluate_checked(source: &str) -> EResult<Value> {
+    let program = match check_source(source) {
+        Ok(program) => program,
+        Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
+        Err(Failure::Syntax(err)) => panic!("Syntax error: {:?}", err),
+        Err(Failure::Runtime(_)) => unreachable!(),
+    };
+    let mut vm = Interpreter::new();
+    let (last, previous) = program.split_last().expect("Non-empty program");
+    vm.execute_block(previous)?;
+    if let Statement::Discard(expr) = &last.kind {
+        vm.evaluate(expr)
+    } else {
+        panic!("Expected a final '_ = expression' in the test program");
     }
 }
 
@@ -4409,29 +5319,100 @@ mod stage1_tests {
 mod stage2_tests {
     use super::*;
 
-    fn evaluate_checked(source: &str) -> EResult<Value> {
-        let program = match check_source(source) {
-            Ok(program) => program,
-            Err(Failure::Static(errors)) => panic!("Static errors: {:?}", errors),
-            Err(Failure::Syntax(err)) => panic!("Syntax error: {:?}", err),
-            Err(Failure::Runtime(_)) => unreachable!(),
-        };
-        let mut vm = Interpreter::new();
-        let (last, previous) = program.split_last().expect("Non-empty program");
-        vm.execute_block(previous)?;
-        if let Statement::Expression(expr) = &last.kind {
-            vm.evaluate(expr)
-        } else {
-            panic!("Last statement must be an expression");
-        }
-    }
-
     fn math(expr: &str) -> EResult<Value> {
-        evaluate_checked(&format!("import \"math\" as math\n{}", expr))
+        evaluate_checked(&format!("import \"math\" as math\n_ = {expr}"))
     }
 
     fn types(expr: &str) -> EResult<Value> {
-        evaluate_checked(&format!("import \"types\" as types\n{}", expr))
+        evaluate_checked(&format!("import \"types\" as types\n_ = {expr}"))
+    }
+
+    #[test]
+    fn break_and_skip_control_while_loops() {
+        let source = r#"
+int i := 0
+int total := 0
+loop i < 10:
+	i = i + 1
+	if i == 2:
+		skip
+	if i == 5:
+		break
+	total = total + i
+_ = total
+"#;
+
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Int(8));
+    }
+
+    #[test]
+    fn break_and_skip_control_for_in_loops() {
+        let source = r#"
+ls<int> values := list<int>{1, 2, 3, 4}
+int total := 0
+loop item in values:
+	if item == 2:
+		skip
+	total = total + item
+	if item == 3:
+		break
+_ = total
+"#;
+
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Int(4));
+    }
+
+    #[test]
+    fn loop_control_only_affects_the_nearest_nested_loop() {
+        let source = r#"
+int outer := 0
+int total := 0
+loop outer < 3:
+	outer = outer + 1
+	int inner := 0
+	loop inner < 4:
+		inner = inner + 1
+		if inner == 2:
+			break
+		total = total + 1
+_ = total
+"#;
+
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Int(3));
+    }
+
+    #[test]
+    fn loop_control_is_rejected_outside_loops() {
+        assert!(matches!(check_source("break"), Err(Failure::Static(_))));
+        assert!(matches!(check_source("skip"), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn function_cannot_control_a_callers_loop() {
+        let source = r#"
+function Invalid() -> int:
+	break
+	return int 1
+loop true:
+	Output(Invalid())
+	break
+"#;
+
+        assert!(matches!(check_source(source), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn loop_control_is_allowed_inside_a_functions_own_loop() {
+        let source = r#"
+function First() -> int:
+	loop true:
+		break
+	return int 1
+Output(First())
+"#;
+
+        assert!(check_source(source).is_ok());
+        assert!(execute(source).is_ok());
     }
 
     #[test]
@@ -4440,12 +5421,12 @@ mod stage2_tests {
         assert_eq!(math("math:AbsoluteValue((-2.5))").unwrap(), Value::Flt(2.5));
         assert_eq!(math("math:SquareRoot(81.0)").unwrap(), Value::Flt(9.0));
         assert!(math("math:SquareRoot((-1.0))").is_err());
-        assert!(check_source("import \"math\" as math\nmath:SquareRoot(9)").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:SquareRoot(9)").is_err());
     }
 
     #[test]
     fn absolute_value_integer_minimum_rejected() {
-        let source = "import \"math\" as math\nimport \"types\" as types\nmath:AbsoluteValue(types:Convert(\"-9223372036854775808\", int))";
+        let source = "import \"math\" as math\nimport \"types\" as types\n_ = math:AbsoluteValue(types:Convert(\"-9223372036854775808\", int))";
         assert!(evaluate_checked(source).is_err());
     }
 
@@ -4467,7 +5448,7 @@ mod stage2_tests {
             Value::Flt(0.0)
         );
         assert!(math("math:Clamp(1, 3, 2)").is_err());
-        assert!(check_source("import \"math\" as math\nmath:Minimum(2, 3.0)").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:Minimum(2, 3.0)").is_err());
     }
 
     #[test]
@@ -4479,7 +5460,7 @@ mod stage2_tests {
             Value::Flt(4.0)
         );
         assert!(math("math:Sum(list<int>{9223372036854775807, 1})").is_err());
-        assert!(check_source("import \"math\" as math\nmath:Sum(list<str>{\"x\"})").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:Sum(list<str>{\"x\"})").is_err());
     }
 
     #[test]
@@ -4507,19 +5488,19 @@ mod stage2_tests {
         assert_eq!(math("math:RandomInterval(5, 5)").unwrap(), Value::Int(5));
 
         // Invalid literal bounds are rejected during static checking, not at runtime.
-        let literal_bounds = "import \"math\" as math\nmath:RandomInterval(10, 1)";
+        let literal_bounds = "import \"math\" as math\n_ = math:RandomInterval(10, 1)";
         assert!(matches!(
             check_source(literal_bounds),
             Err(Failure::Static(_))
         ));
 
         // Non-literal bounds pass static checking but fail at runtime when inverted.
-        let dynamic_bounds = "import \"math\" as math\nminimum int := 10\nmaximum int := 1\nmath:RandomInterval(minimum, maximum)";
+        let dynamic_bounds = "import \"math\" as math\nint minimum := 10\nint maximum := 1\n_ = math:RandomInterval(minimum, maximum)";
         assert!(check_source(dynamic_bounds).is_ok());
         assert!(evaluate_checked(dynamic_bounds).is_err());
 
         // The numeric types of both boundaries are checked statically.
-        assert!(check_source("import \"math\" as math\nmath:RandomInterval(1, 2.0)").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:RandomInterval(1, 2.0)").is_err());
     }
 
     #[test]
@@ -4552,6 +5533,82 @@ mod stage2_tests {
     }
 
     #[test]
+    fn convert_string_to_list_of_strings() {
+        assert_eq!(
+            types(r#"types:Convert("hello", ls<str>)"#).unwrap(),
+            Value::List(
+                "str".into(),
+                ["h", "e", "l", "l", "o"]
+                    .into_iter()
+                    .map(|character| Value::Str(character.into()))
+                    .collect()
+            )
+        );
+    }
+
+    #[test]
+    fn convert_string_to_list_of_strings_supports_unicode_scalar_values() {
+        assert_eq!(
+            types(r#"types:Convert("Привет", ls<str>)"#).unwrap(),
+            Value::List(
+                "str".into(),
+                ["П", "р", "и", "в", "е", "т"]
+                    .into_iter()
+                    .map(|character| Value::Str(character.into()))
+                    .collect()
+            )
+        );
+        assert_eq!(
+            types(r#"types:Convert("A🙂Б", ls<str>)"#).unwrap(),
+            Value::List(
+                "str".into(),
+                ["A", "🙂", "Б"]
+                    .into_iter()
+                    .map(|character| Value::Str(character.into()))
+                    .collect()
+            )
+        );
+    }
+
+    #[test]
+    fn convert_empty_string_to_empty_string_list() {
+        assert_eq!(
+            types(r#"types:Convert("", ls<str>)"#).unwrap(),
+            Value::List("str".into(), Vec::new())
+        );
+    }
+
+    #[test]
+    fn is_convertible_supports_string_to_string_list() {
+        assert_eq!(
+            types(r#"types:IsConvertible("hello", ls<str>)"#).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            types(r#"types:IsConvertible(123, ls<str>)"#).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn string_to_list_conversion_rejects_other_list_targets() {
+        assert!(
+            check_source(
+                r#"import "types" as types
+_ = types:Convert("hello", ls<int>)"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "types" as types
+_ = types:Convert(123, ls<str>)"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn is_convertible_returns_false_without_error() {
         assert_eq!(
             types("types:IsConvertible(\"123\", int)").unwrap(),
@@ -4577,26 +5634,245 @@ mod stage2_tests {
 
     #[test]
     fn convert_rejects_unsupported_pair_statically() {
-        assert!(check_source("import \"types\" as types\ntypes:Convert(true, int)").is_err());
+        assert!(check_source("import \"types\" as types\n_ = types:Convert(true, int)").is_err());
         assert!(
-            check_source("import \"types\" as types\ntypes:Convert(list<int>{1}, str)").is_err()
+            check_source("import \"types\" as types\n_ = types:Convert(list<int>{1}, str)")
+                .is_err()
         );
     }
 
     #[test]
     fn type_target_must_be_literal() {
-        assert!(check_source("import \"types\" as types\ntypes:Convert(1, TypeOf(1))").is_err());
         assert!(
-            check_source("import \"types\" as types\ntypes:IsConvertible(1, ls<int>)").is_err()
+            check_source("import \"types\" as types\n_ = types:Convert(1, types:CurrentTypeOf(1))")
+                .is_err()
+        );
+        assert!(
+            check_source("import \"types\" as types\n_ = types:IsConvertible(1, ls<int>)").is_err()
+        );
+    }
+
+    fn strings(expr: &str) -> EResult<Value> {
+        evaluate_checked(&format!("import \"strings\" as strings\n_ = {expr}"))
+    }
+
+    #[test]
+    fn alphabet_range_supports_inclusive_uppercase_lowercase_and_reverse_ranges() {
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("A", "F")"#).unwrap(),
+            Value::Str("ABCDEF".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("A", "S")"#).unwrap(),
+            Value::Str("ABCDEFGHIJKLMNOPQRS".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("a", "f")"#).unwrap(),
+            Value::Str("abcdef".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("F", "A")"#).unwrap(),
+            Value::Str("FEDCBA".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("z", "x")"#).unwrap(),
+            Value::Str("zyx".into())
+        );
+        assert_eq!(
+            strings(r#"strings:AlphabetRange("M", "M")"#).unwrap(),
+            Value::Str("M".into())
+        );
+    }
+
+    #[test]
+    fn alphabet_range_rejects_invalid_literal_endpoints_statically() {
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+_ = strings:AlphabetRange("AA", "Z")"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+_ = strings:AlphabetRange("A", "z")"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+_ = strings:AlphabetRange("1", "9")"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+_ = strings:AlphabetRange("Я", "Я")"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn alphabet_range_rejects_invalid_dynamic_endpoints_at_runtime() {
+        let source = r#"import "strings" as strings
+str start := "A"
+str end := "z"
+_ = strings:AlphabetRange(start, end)"#;
+        assert!(check_source(source).is_ok());
+        assert!(evaluate_checked(source).is_err());
+    }
+
+    #[test]
+    fn ascii_case_predicates_check_every_character() {
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("ABC")"#).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("A1")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("AbC")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("Я")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiUppercase("")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("abc")"#).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("a1")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("Abc")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("я")"#).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            strings(r#"strings:IsAsciiLowercase("")"#).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn ascii_string_functions_validate_argument_types_and_counts() {
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+_ = strings:AlphabetRange(1, "Z")"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+_ = strings:IsAsciiUppercase(1)"#
+            )
+            .is_err()
+        );
+        assert!(
+            check_source(
+                r#"import "strings" as strings
+_ = strings:IsAsciiLowercase("a", "b")"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn string_indexing_is_one_based_and_returns_str() {
+        assert_eq!(
+            evaluate_checked(r#"_ = "hello"[1]"#).unwrap(),
+            Value::Str("h".into())
+        );
+        assert_eq!(
+            evaluate_checked(r#"_ = "hello"[5]"#).unwrap(),
+            Value::Str("o".into())
+        );
+        assert_eq!(
+            evaluate_checked(
+                r#"str text := "hello"
+_ = text[2]"#
+            )
+            .unwrap(),
+            Value::Str("e".into())
+        );
+    }
+
+    #[test]
+    fn string_indexing_uses_unicode_scalar_values() {
+        assert_eq!(
+            evaluate_checked(r#"_ = "Привет"[1]"#).unwrap(),
+            Value::Str("П".into())
+        );
+        assert_eq!(
+            evaluate_checked(r#"_ = "A🙂Б"[2]"#).unwrap(),
+            Value::Str("🙂".into())
+        );
+        assert_eq!(
+            evaluate_checked(r#"_ = "A🙂Б"[3]"#).unwrap(),
+            Value::Str("Б".into())
+        );
+    }
+
+    #[test]
+    fn string_indexing_rejects_zero_and_out_of_bounds() {
+        assert!(matches!(
+            check_source(r#"_ = "hello"[0]"#),
+            Err(Failure::Static(_))
+        ));
+        assert!(evaluate_checked(r#"_ = "hello"[6]"#).is_err());
+    }
+
+    #[test]
+    fn string_indexing_requires_an_integer_index() {
+        assert!(matches!(
+            check_source(r#"_ = "hello"["1"]"#),
+            Err(Failure::Static(_))
+        ));
+    }
+
+    #[test]
+    fn strings_are_not_mutable_through_index_assignment() {
+        assert!(matches!(
+            check_source(
+                r#"str text := "hello"
+text[1] = "H""#
+            ),
+            Err(Failure::Static(_))
+        ));
+    }
+
+    #[test]
+    fn list_indexing_still_works_after_string_indexing() {
+        assert_eq!(
+            evaluate_checked("ls<int> values := list<int>{10, 20, 30}\n_ = values[2]").unwrap(),
+            Value::Int(20)
         );
     }
 
     #[test]
     fn module_imports_and_invalid_arity() {
         assert!(check_source("import \"math\" as math\nimport \"types\" as types\nOutput(math:AbsoluteValue(types:Convert(\"-4\", int)))").is_ok());
-        assert!(check_source("import \"math\" as math\nmath:AbsoluteValue(1, 2)").is_err());
-        assert!(check_source("import \"types\" as types\ntypes:Convert(1)").is_err());
-        assert!(check_source("import \"types\" as types\ntypes:Unknown(1)").is_err());
+        assert!(check_source("import \"math\" as math\n_ = math:AbsoluteValue(1, 2)").is_err());
+        assert!(check_source("import \"types\" as types\n_ = types:Convert(1)").is_err());
+        assert!(check_source("import \"types\" as types\n_ = types:Unknown(1)").is_err());
     }
 }
 
@@ -4606,7 +5882,7 @@ mod stage3_tests {
 
     #[test]
     fn includes_allows_empty_string_as_list_element() {
-        let source = r#"items ls<str> := list<str>{"", "value"}
+        let source = r#"ls<str> items := list<str>{"", "value"}
 Output(Includes(items, ""))"#;
         assert!(
             check_source(source).is_ok(),
@@ -4667,5 +5943,678 @@ Output(Includes(items, ""))"#;
         assert_eq!(exact_integer_quotient(1, 3), None);
         assert_eq!(exact_integer_quotient(0, 3), Some(0.0));
         assert_eq!(exact_integer_quotient(1, 0), None);
+    }
+}
+
+#[cfg(test)]
+mod union_type_tests {
+    use super::*;
+
+    #[test]
+    fn declared_and_current_type_of_are_available_in_types_module() {
+        let declared = r#"import "types" as types
+int | str value := 10
+_ = types:DeclaredTypeOf(value)"#;
+        let initial = r#"import "types" as types
+int | str value := 10
+_ = types:CurrentTypeOf(value)"#;
+        let updated = r#"import "types" as types
+int | str value := 10
+value = "Hi!"
+_ = types:CurrentTypeOf(value)"#;
+
+        assert_eq!(
+            evaluate_checked(declared).unwrap(),
+            Value::Type("int | str".into())
+        );
+        assert_eq!(
+            evaluate_checked(initial).unwrap(),
+            Value::Type("int".into())
+        );
+        assert_eq!(
+            evaluate_checked(updated).unwrap(),
+            Value::Type("str".into())
+        );
+    }
+
+    #[test]
+    fn declared_type_of_requires_a_variable() {
+        let source = r#"import "types" as types
+_ = types:DeclaredTypeOf(10)"#;
+        assert!(check_source(source).is_err());
+    }
+
+    #[test]
+    fn union_types_parse_in_declarations_parameters_and_returns() {
+        let source = r#"
+function Echo(int | str value) -> int | str:
+	return int | str value
+int | str item := 42
+item = "answer"
+_ = Echo(item)
+"#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(
+            evaluate_checked(source).unwrap(),
+            Value::Str("answer".into())
+        );
+    }
+
+    #[test]
+    fn union_lists_accept_each_declared_member() {
+        let source = r#"
+ls<int | str> values := list<int | str>{1, "two", 3}
+_ = Includes(values, "two")
+"#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn union_lists_return_union_element_types() {
+        let source = r#"
+ls<int | str> values := list<int | str>{1, "two"}
+_ = values[2]
+"#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Str("two".into()));
+    }
+
+    #[test]
+    fn union_of_list_types_can_be_indexed_and_measured() {
+        let source = r#"
+ls<int> | ls<str> values := list<int>{1, 2}
+_ = Length(values)
+"#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Int(2));
+    }
+
+    #[test]
+    fn union_types_reject_values_outside_the_union() {
+        let source = "int | str value := true";
+        assert!(matches!(check_source(source), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn union_list_elements_reject_values_outside_the_union() {
+        let source = "ls<int | str> values := list<int | str>{1, true}";
+        assert!(matches!(check_source(source), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn union_of_list_types_rejects_unsafe_mutation() {
+        let source = r#"
+ls<int> | ls<str> values := list<int>{1, 2}
+values[1] = "text"
+"#;
+
+        assert!(matches!(check_source(source), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn function_arguments_accept_union_members_but_not_unrelated_types() {
+        let accepted = r#"
+function Echo(int | str value) -> int | str:
+	return int | str value
+_ = Echo("text")
+"#;
+        let rejected = r#"
+function Number(int value) -> int:
+	return int value
+int | str item := "text"
+_ = Number(item)
+"#;
+
+        assert!(check_source(accepted).is_ok());
+        assert!(matches!(check_source(rejected), Err(Failure::Static(_))));
+    }
+
+    #[test]
+    fn union_types_are_flattened_and_deduplicated() {
+        let ty = Type::from_name("int | str | int").unwrap();
+        assert_eq!(ty.name(), "int | str");
+        assert!(type_accepts("int | str", "int"));
+        assert!(!type_accepts("int", "int | str"));
+    }
+
+    #[test]
+    fn if_condition_supports_logical_or_at_line_start() {
+        let source = r#"
+function Check() -> bool:
+	if false
+		|| false
+		|| true:
+		return bool true
+	else:
+		return bool false
+_ = Check()
+"#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn if_condition_supports_logical_and_at_line_start() {
+        let source = r#"
+function Check() -> bool:
+	if true
+		&& true
+		&& false:
+		return bool true
+	else:
+		return bool false
+_ = Check()
+"#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn multiline_logical_operators_preserve_precedence() {
+        let source = r#"
+function Check() -> bool:
+	if false
+		|| true
+		&& false:
+		return bool true
+	else:
+		return bool false
+_ = Check()
+"#;
+
+        assert!(check_source(source).is_ok());
+        assert_eq!(evaluate_checked(source).unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn ordinary_newline_still_ends_expression() {
+        let source = r#"
+bool value := true
+false
+"#;
+
+        let program = match parse_source(source) {
+            Ok(program) => program,
+            Err(_) => panic!("Expected two separate statements"),
+        };
+        assert_eq!(program.len(), 2);
+        assert!(matches!(
+            program[1].kind,
+            Statement::Expression(Expr {
+                kind: ExprKind::Literal(Value::Bool(false)),
+                ..
+            })
+        ));
+    }
+}
+
+#[cfg(test)]
+mod indentation_syntax_tests {
+    use super::*;
+
+    fn syntax_error(source: &str) -> Diagnostic {
+        match parse_source(source) {
+            Err(Failure::Syntax(error)) => error,
+            _ => panic!("Expected a syntax error for {source:?}"),
+        }
+    }
+
+    fn static_errors(source: &str) -> Vec<Diagnostic> {
+        match check_source(source) {
+            Err(Failure::Static(errors)) => errors,
+            Err(Failure::Syntax(error)) => panic!("Unexpected syntax error: {error:?}"),
+            _ => panic!("Expected static errors for {source:?}"),
+        }
+    }
+
+    #[test]
+    fn emits_layout_tokens_only_for_block_depth_changes() {
+        let source = "if true:\r\n\t/* outer\r\n /* inner */\r\n*/\r\n\tif true:\r\n\t\tOutput(\r\n42\r\n)\r\n\t \r\nOutput(0)";
+        let tokens = lex(source).unwrap();
+        let markers: Vec<_> = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Indent | TokenKind::Dedent))
+            .map(|t| (&t.kind, t.span.line))
+            .collect();
+        assert_eq!(
+            markers,
+            [
+                (&TokenKind::Indent, 5),
+                (&TokenKind::Indent, 6),
+                (&TokenKind::Dedent, 10),
+                (&TokenKind::Dedent, 10)
+            ]
+        );
+        assert!(check_source(source).is_ok());
+    }
+
+    #[test]
+    fn arbitrary_tab_width_is_irrelevant_to_nesting() {
+        let mut source = String::new();
+        for depth in 0..40 {
+            source.push_str(&"\t".repeat(depth));
+            source.push_str("if true:\n");
+        }
+        source.push_str(&"\t".repeat(40));
+        source.push_str("Output(1)");
+        assert!(check_source(&source).is_ok());
+        let tokens = lex(&source).unwrap();
+        assert_eq!(
+            tokens
+                .iter()
+                .filter(|t| t.kind == TokenKind::Dedent)
+                .count(),
+            40
+        );
+    }
+
+    #[test]
+    fn indentation_and_block_diagnostics_point_to_the_affected_line() {
+        let cases = [
+            ("\tOutput(1)", 1, "Unexpected indentation"),
+            ("if true:\n    Output(1)", 2, "must use tabs"),
+            ("if true:\n \tOutput(1)", 2, "cannot mix tabs and spaces"),
+            ("if true:\n\t\tOutput(1)", 2, "increase by one tab"),
+            (
+                "if true:\n\tOutput(1)\n\t\tOutput(2)",
+                3,
+                "Unexpected indentation",
+            ),
+            (
+                "if true:\n/* just a comment */\nOutput(1)",
+                3,
+                "Expected an indented block",
+            ),
+            ("if true: Output(1)", 1, "Expected a newline"),
+            ("Output(\n 1\n)", 2, "must use tabs"),
+            (
+                "if true:\n\tOutput(1)\n\telse:\n\t\tOutput(2)",
+                3,
+                "without a preceding 'if'",
+            ),
+        ];
+        for (source, line, message) in cases {
+            let error = syntax_error(source);
+            assert_eq!(error.span.line, line, "{source:?}");
+            assert!(error.message.contains(message), "{source:?}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn comments_preserve_logical_statement_separators() {
+        let source = "Output(1) /* a\n  /* nested */\n*/ Output(2)";
+        let ast = match parse_source(source) {
+            Ok(ast) => ast,
+            Err(_) => panic!("Expected two statements"),
+        };
+        assert_eq!(ast.len(), 2);
+
+        let source = "if true:\n\t/* opener\n   /* nested */\n   */ Output(1)\nOutput(2)\n";
+        assert!(check_source(source).is_ok());
+        assert_eq!(formatter::format(source).unwrap(), source);
+    }
+
+    #[test]
+    fn allows_else_after_trivia_and_closes_nested_blocks_at_the_right_level() {
+        let source = concat!(
+            "bool ready := true\n",
+            "function Choose(int value) -> str:\n",
+            "\tif value == 0:\n",
+            "\t\treturn str \"zero\"\n",
+            "\n\t/* branches */\n",
+            "\telse if value == 1:\n",
+            "\t\tif ready:\n",
+            "\t\t\treturn str \"ready\"\n",
+            "\t\telse:\n",
+            "\t\t\treturn str \"waiting\"\n",
+            "\n\telse:\n",
+            "\t\treturn str \"other\"\n",
+            "Output(Choose(1))",
+        );
+        assert!(check_source(source).is_ok());
+    }
+
+    #[test]
+    fn multiline_expressions_and_lists_use_expression_delimiters() {
+        let source = concat!(
+            "function Add(\n\tint first,\n\tint second,\n) -> int:\n",
+            "\treturn int (first +\n\t\tsecond)\n",
+            "ls<\n\tint\n> items := list<int>{\n\tAdd(1,\n\t\t2),\n\t5,\n}\n",
+            "loop item in list<int>{\n\titems[\n\t\t1\n\t],\n}:\n",
+            "\tOutput(item)\n",
+        );
+        assert!(check_source(source).is_ok());
+    }
+
+    #[test]
+    fn rejects_brace_blocks_and_previous_declaration_syntax() {
+        for (source, expected) in [
+            ("function Test() int:\n\treturn int 1", "Expected '->'"),
+            (
+                "function Test(value int) -> int:\n\treturn int value",
+                "reserved keyword",
+            ),
+            (
+                "function Test() -> int {\n\treturn int 1\n}",
+                "Expected ':'",
+            ),
+            ("if true {\n\tOutput(1)\n}", "Expected ':'"),
+            ("loop true {\n\tbreak\n}", "Expected ':'"),
+            (
+                "if true:\n\tOutput(1)\notherwise:\n\tOutput(2)\n",
+                "Expected a newline",
+            ),
+            ("value int := 1\nOutput(value)", "reserved keyword"),
+        ] {
+            let error = syntax_error(source);
+            assert!(error.message.contains(expected), "{source:?}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn checks_nested_interpolation_and_quoted_text_on_original_spans() {
+        let source = concat!(
+            "import \"strings\" as strings\nstr name := \"Hexer\"\n",
+            r##"Output("Result: #{strings:Repeat("Hello #{name}", 2)} #{list<str>{"}" }[1]}")"##,
+        );
+        assert!(check_source(source).is_ok());
+
+        let errors = static_errors(r##"Output("x #{Length("y #{missing}")}")"##);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].span, Span::new(1, 25, "missing".len()));
+
+        for (source, expected) in [
+            (
+                "Output(\"#{(1 +\n\t2)}\")",
+                "Interpolation must be on one line",
+            ),
+            (
+                "Output(\"#{1 /*\n nested */}\")",
+                "Interpolation must be on one line",
+            ),
+            (r##"Output("#{/* comment */}")"##, "Empty interpolation"),
+            (r##"Output("#{1"##, "Unclosed interpolation"),
+            (r##"Output("#{Length("text"##, "Unclosed string"),
+            (
+                r##"Output("#{Length("text"}")"##,
+                "Expected ')' inside interpolation",
+            ),
+            ("Output(\"one\r\n two\")", "Newline inside string"),
+        ] {
+            let error = syntax_error(source);
+            assert!(error.message.contains(expected), "{source:?}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn counts_syntactic_references_and_reports_every_unused_kind() {
+        let source = concat!(
+            "import \"math\" as _math\n",
+            "int _variable := 1\n",
+            "function _B() -> int:\n\treturn int 2\n",
+            "function _A(int _parameter) -> int:\n",
+            "\tif false:\n\t\tOutput(_B())\n",
+            "\tloop _item in list<int>{1}:\n\t\tbreak\n",
+            "\treturn int 1\n",
+        );
+        let errors = static_errors(source);
+        let messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+        assert_eq!(
+            messages,
+            [
+                "Unused module '_math'",
+                "Unused variable '_variable'",
+                "Unused function '_A'",
+                "Unused parameter '_parameter' in function '_A'",
+                "Unused loop variable '_item'",
+            ]
+        );
+        assert!(check_source("int x := 1\nx = 2\nls<int> xs := list<int>{1}\nxs[1] = 3").is_ok());
+    }
+
+    #[test]
+    fn resolves_names_in_declaration_order_and_through_erroneous_expressions() {
+        let source = concat!(
+            "Output(F())\n",
+            "Output(mod:Sum(list<int>{1}))\n",
+            "Output(later)\n",
+            "import \"math\" as mod\n",
+            "function F() -> int:\n\treturn int 1\n",
+            "int later := 2\n",
+        );
+        let errors = static_errors(source);
+        for message in [
+            "Function 'F' must be declared before it is called",
+            "Undefined module 'mod'",
+            "Undefined variable 'later'",
+            "import statements must appear at the beginning of the file",
+        ] {
+            assert!(errors.iter().any(|e| e.message == message), "{errors:?}");
+        }
+
+        let source = concat!(
+            "import \"strings\" as strings\n",
+            "int value := 1\n",
+            "Output(unknown + value)\n",
+            "missing:Call(value)\n",
+            "strings:Unknown(value)\n",
+        );
+        let errors = static_errors(source);
+        assert_eq!(errors.len(), 3, "{errors:?}");
+        assert!(errors.iter().all(|e| !e.message.contains("Unused")));
+
+        let errors = static_errors("import \"strings\" as strings\nOutput(strings)");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message == "Unused module 'strings'")
+        );
+    }
+
+    #[test]
+    fn diagnoses_direct_and_indirect_recursion_from_nested_expressions() {
+        let direct = concat!(
+            "function Direct() -> str:\n",
+            "\tif false:\n\t\tOutput(missing + Direct())\n",
+            "\treturn str \"#{Direct()}\"\n",
+        );
+        let errors = static_errors(direct);
+        assert_eq!(
+            errors
+                .iter()
+                .filter(|e| e.message.contains("cannot call itself"))
+                .count(),
+            2
+        );
+
+        let indirect = concat!(
+            "function A() -> str:\n",
+            "\treturn str \"#{B()}\"\n",
+            "function B() -> str:\n",
+            "\treturn str list<str>{C()}[1]\n",
+            "function C() -> str:\n",
+            "\tloop false:\n",
+            "\t\tmissing:Call(A())\n",
+            "\treturn str \"done\"\n",
+        );
+        let errors = static_errors(indirect);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("A -> B -> C -> A")),
+            "{errors:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod result_tests {
+    use super::*;
+
+    fn errors(source: &str) -> Vec<Diagnostic> {
+        match check_source(source) {
+            Err(Failure::Static(errors)) => errors,
+            _ => panic!("Expected static errors in {source}"),
+        }
+    }
+
+    #[test]
+    fn typed_functions_preserve_their_returned_values() {
+        for (ty, literal, expected) in [
+            ("int", "42", Value::Int(42)),
+            ("flt", "2.5", Value::Flt(2.5)),
+            ("bool", "false", Value::Bool(false)),
+            ("str", "\"hi\"", Value::Str("hi".into())),
+            ("none", "null", Value::Null),
+        ] {
+            let source = format!("function F() -> {ty}:\n\treturn {ty} {literal}\n_ = F()");
+            assert_eq!(evaluate_checked(&source).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn standalone_values_require_explicit_discard() {
+        for (setup, expression) in [
+            ("", "42"),
+            ("", "null"),
+            ("int x := 1\n", "x"),
+            ("function F() -> int:\n\treturn int 1\n", "F() + 10"),
+            ("function F() -> none:\n\treturn none null\n", "F()"),
+            ("", "Length(\"hi\")"),
+            ("", "Input(\"\")"),
+            ("import \"math\" as m\n", "m:Average(list<int>{1})"),
+            ("import \"strings\" as s\n", "s:ToUpperCase(\"hi\")"),
+            ("import \"types\" as t\n", "t:CurrentTypeOf(null)"),
+        ] {
+            let diagnostics = errors(&format!("{setup}{expression}"));
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+            assert_eq!(diagnostics[0].message, UNUSED_VALUE);
+            assert_eq!(diagnostics[0].span.length, expression.len());
+            assert!(check_source(&format!("{setup}_ = {expression}")).is_ok());
+        }
+    }
+
+    #[test]
+    fn no_value_is_rejected_in_every_value_context() {
+        let def = "function Display() -|:\n\tOutput(1)\n";
+        for usage in [
+            "int x := Display()\nOutput(x)",
+            "int x := 1\nx = Display()",
+            "Output(Display())",
+            "if Display():\n\tOutput(1)",
+            "loop Display():\n\tbreak",
+            "_ = Display() + 1",
+            "_ = !Display()",
+            "_ = list<int>{Display()}",
+            "_ = list<int>{1}[Display()]",
+            "_ = Display()[1]",
+            "loop x in Display():\n\tOutput(x)",
+            "Output(\"#{Display()}\")",
+            "Output(\"#{\"#{Display()}\"}\")",
+            "_ = false && Display()",
+            "function F() -> none:\n\treturn none Display()\n_ = F()",
+        ] {
+            let diagnostics = errors(&format!("{def}{usage}"));
+            assert!(
+                diagnostics.iter().any(|d| d.message == VALUE_REQUIRED),
+                "{usage}: {diagnostics:?}"
+            );
+            assert!(!diagnostics.iter().any(|d| d.message == UNUSED_VALUE));
+        }
+        for source in ["_ = Output(1)".to_string(), format!("{def}_ = Display()")] {
+            assert_eq!(errors(&source)[0].message, NOTHING_TO_DISCARD);
+        }
+        let diagnostics = errors("Output(Length(Output(0)))");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.column, 15);
+    }
+
+    #[test]
+    fn underscore_is_exclusive_to_discard_statements() {
+        for source in [
+            "_ := 1",
+            "int _ := 1",
+            "Output(_)",
+            "int x := _",
+            "example = _",
+            "_ = 1 + _",
+            "_()",
+            "(_)=1",
+            "_[1] = 3",
+            "import \"math\" as _",
+            "function _() -|:\n\tOutput(1)",
+            "function F(int _) -|:\n\tOutput(1)",
+            "loop _ in list<int>{1}:\n\tbreak",
+            "import \"math\" as m\n_ = m:_()",
+            "Output(\"#{_}\")",
+        ] {
+            assert!(
+                matches!(parse_source(source), Err(Failure::Syntax(ref d)) if d.message == DISCARD_POSITION),
+                "{source}"
+            );
+        }
+        assert!(matches!(
+            parse_source("function = _"),
+            Err(Failure::Syntax(_))
+        ));
+        assert!(check_source("int _item := 4\n_ = _item\n_ = _item").is_ok());
+    }
+
+    #[test]
+    fn markers_and_returns_follow_the_function_contract() {
+        for marker in ["- |", "-/* gap */|", "-| int", "-> -|"] {
+            assert!(parse_source(&format!("function F() {marker}:\n\tOutput(1)")).is_err());
+        }
+        for source in [
+            "-| x := 1",
+            "function F(-| x) -|:\n\tOutput(x)",
+            "_ = ls<-|>",
+        ] {
+            assert!(parse_source(source).is_err(), "{source}");
+        }
+        assert!(matches!(
+            parse_source("function F() -|:\n\treturn"),
+            Err(Failure::Syntax(_))
+        ));
+        let nested =
+            "function F() -|:\n\tloop true:\n\t\tif false:\n\t\t\treturn none null\n\t\tbreak\nF()";
+        assert!(errors(nested).iter().any(|d| d.message == NO_VALUE_RETURN));
+        assert!(
+            errors("function F() -> int:\n\tif true:\n\t\treturn int 1\n_ = F()")
+                .iter()
+                .any(|d| d.message.contains("every path"))
+        );
+    }
+
+    #[test]
+    fn unchecked_interpreter_distinguishes_no_value_and_null() {
+        let source = "function F() -|:\n\t_ = 1\nfunction N() -> none:\n\treturn none null";
+        let program = parse_source(source).ok().unwrap();
+        let mut vm = Interpreter::new();
+        vm.run(&program).unwrap();
+        let span = Span::new(1, 1, 1);
+        assert!(matches!(
+            vm.call("F", &[], span).unwrap(),
+            FunctionResult::NoValue
+        ));
+        assert!(matches!(
+            vm.call("N", &[], span).unwrap(),
+            FunctionResult::Value(Value::Null)
+        ));
+        for (usage, message) in [
+            ("_ = F()", NOTHING_TO_DISCARD),
+            ("Output(F())", VALUE_REQUIRED),
+            ("N()", UNUSED_VALUE),
+        ] {
+            let program = parse_source(usage).ok().unwrap();
+            assert_eq!(vm.run(&program).unwrap_err().message, message);
+        }
     }
 }

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2),
   index = args.indexOf("--tag");
 if (index < 0 || !args[index + 1])
-  throw Error("Usage: npm run release:update -- --tag 0.2.0 [--check]");
+  throw Error("Usage: npm run release:update -- --tag 0.3.0 [--check]");
 const tag = args[index + 1];
 const response = await fetch(
   `https://api.github.com/repos/ItsMeQuote/epholang/releases/tags/${encodeURIComponent(tag)}`,
@@ -13,13 +13,19 @@ if (!response.ok)
 const release = await response.json();
 if (release.draft) throw Error("Draft releases are not publishable");
 const current = JSON.parse(readFileSync("src/data/release.json", "utf8"));
-const assets = release.assets.map((a) => {
+const assets = release.assets.filter((a) => a.name !== "SHA256SUMS").map((a) => {
   const previous = current.assets.find((p) => p.name === a.name);
   let kind = previous?.kind,
     platform = previous?.platform;
   if (a.name.endsWith(".vsix")) {
     kind = "editor";
     platform = "VS Code";
+  }
+  const binary = /^epholang-0\.3\.0-(x86_64|aarch64)-(pc-windows-msvc|apple-darwin|unknown-linux-gnu|unknown-linux-musl)\.(zip|tar\.gz)$/.exec(a.name);
+  if (binary) {
+    kind = "interpreter";
+    const systems = { "pc-windows-msvc": "Windows", "apple-darwin": "macOS", "unknown-linux-gnu": "Linux (glibc)", "unknown-linux-musl": "Linux (musl)" };
+    platform = systems[binary[2]] + " " + binary[1];
   }
   if (!kind || !platform)
     throw Error(

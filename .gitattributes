@@ -1,0 +1,2 @@
+# EphoFMT emits LF on all platforms.
+*.epho text eol=lf

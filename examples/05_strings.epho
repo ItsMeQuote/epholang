@@ -1,7 +1,7 @@
 import "strings" as strings
 
-message str := "Hello Epholang"
+str message := "Hello Epholang"
 Output(strings:ToUpperCase(message))
 Output("\n")
-parts ls<str> := strings:Split("a,b,c", ",")
+ls<str> parts := strings:Split("a,b,c", ",")
 Output("#{parts}\n")

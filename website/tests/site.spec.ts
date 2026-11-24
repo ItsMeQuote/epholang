@@ -1,3 +1,4 @@
+import { ru } from "../src/data/site.ru";
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 test("root language choices and content work without JavaScript", async ({
@@ -7,7 +8,7 @@ test("root language choices and content work without JavaScript", async ({
   const page = await context.newPage();
   await page.goto("/epholang/");
   await expect(
-    page.getByRole("link", { name: "Русский", exact: false }).last(),
+    page.getByRole("link", { name: ru.russian, exact: false }).last(),
   ).toHaveAttribute("href", "/epholang/ru/");
   await page.locator('[data-choice="ru"]').click();
   await expect(page.locator("html")).toHaveAttribute("lang", "ru");
@@ -93,7 +94,7 @@ test("mobile menu, Escape and responsive overflow", async ({ page }) => {
       ).toBe(true);
     }
     if (width < 850) {
-      const menu = page.getByRole("button", { name: "Меню навигации" });
+      const menu = page.getByRole("button", { name: ru.navigationMenu });
       await menu.click();
       await expect(menu).toHaveAttribute("aria-expanded", "true");
       await page.keyboard.press("Escape");
@@ -114,4 +115,14 @@ test('text enlargement and clipboard failure remain usable',async({page})=>{
  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:()=>Promise.reject(new Error('denied'))}}));
  await page.getByRole('tabpanel').filter({visible:true}).getByRole('button',{name:'Copy code'}).click();
  await expect(page.getByRole('status').filter({hasText:'Select and copy'})).toBeVisible();
+});
+
+test("copy preserves literal tabs in Epholang examples", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/epholang/en/getting-started/");
+  const example = page.locator(".code-block").filter({ hasText: "02_functions.epho" });
+  await example.getByRole("button", { name: "Copy code" }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain(
+    "function Square(int value) -> int:\n\treturn int value * value",
+  );
 });
