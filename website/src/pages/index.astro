@@ -1,4 +1,5 @@
 ---
+import { ru } from "../data/site.ru";
 import release from "../data/release.json";
 import Layout from "../components/Layout.astro";
 import "../styles/global.css";
@@ -6,8 +7,8 @@ import "../styles/global.css";
 
 <Layout
   lang="en"
-  title="Choose your language / Выберите язык"
-  description="Explore Epholang in English or Russian. Выберите русский или английский язык."
+  title={ru.exploreEpholangInEnglishOrRussian}
+  description={ru.languagePage}
   root
 >
   <div class="language-page">
@@ -22,12 +23,12 @@ import "../styles/global.css";
     </div>
     <h1>Explicit by design.</h1>
     <p style="text-align:center">
-      Choose your language / <span lang="ru">Выберите язык</span>
+      Choose your language / <span lang="ru">{ru.chooseYourLanguage}</span>
     </p>
     <div class="language-choices">
       <a href="/epholang/ru/" lang="ru" data-language="ru" data-choice="ru">
-        <strong>Русский</strong>
-        <span>Явные типы. Читаемый код. Строгая проверка.</span>
+        <strong>{ru.russian}</strong>
+        <span>{ru.explicitTypesReadableCodeStrictChecking}</span>
       </a>
       <a href="/epholang/en/" lang="en" data-language="en" data-choice="en">
         <strong>English</strong>

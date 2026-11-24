@@ -3,7 +3,7 @@
   "displayName": "Epholang",
   "icon": "icon.png",
   "description": "Syntax highlighting, snippets, and EphoFMT formatting for Epholang.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "itsmequote",
   "license": "MIT",
   "engines": {

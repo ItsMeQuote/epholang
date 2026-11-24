@@ -1,4 +1,5 @@
 ---
+import { ru } from "../data/site.ru";
 import { buildCode } from "../data/programs";
 import Code from "./Code.astro";
 import { Download } from "@lucide/astro";
@@ -11,7 +12,7 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
 <article class="content">
   <div class="notice">
     <p>
-      {tr("Текущий опубликованный выпуск", "Current published release")}:{" "}
+      {tr(ru.currentPublishedRelease, "Current published release")}:{" "}
       <strong>{release.name}</strong> ·{" "}
       <time datetime={release.publishedAt}>
         {new Intl.DateTimeFormat(lang === "ru" ? "ru-RU" : "en-GB", {
@@ -19,7 +20,7 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
           timeZone: "UTC",
         }).format(new Date(release.publishedAt))}
       </time>
-      . {tr("Предварительный выпуск.", "Prerelease.")}
+      . {tr(ru.prerelease, "Prerelease.")}
     </p>
   </div>
   <div class="download-grid">
@@ -28,17 +29,17 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
         <span class="eyebrow">{asset.platform}</span>
         <h2>
           {asset.kind === "interpreter"
-            ? tr("Интерпретатор", "Interpreter")
-            : tr("Расширение редактора", "Editor extension")}
+            ? tr(ru.interpreter, "Interpreter")
+            : tr(ru.editorExtension, "Editor extension")}
         </h2>
         <p>
           {asset.kind === "interpreter"
             ? tr(
-                "Готовый файл для Windows. Архитектура в названии файла не указана.",
-                "Prebuilt Windows executable. The filename does not specify its architecture.",
+                ru.platformBinary,
+                "Download the interpreter for the platform shown above.",
               )
             : tr(
-                "Подсветка и сниппеты для VS Code 1.90+.",
+                ru.highlightingAndSnippetsForVsCode190,
                 "Highlighting and snippets for VS Code 1.90+.",
               )}
         </p>
@@ -50,32 +51,32 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
     ))}
   </div>
   <p style="margin-top:24px">
-    <a href={release.url}>{tr("Страница этого выпуска", "This release")}</a> ·{" "}
-    <a href={repo + "/releases"}>{tr("Все релизы", "All releases")}</a>
+    <a href={release.url}>{tr(ru.thisRelease, "This release")}</a> ·{" "}
+    <a href={repo + "/releases"}>{tr(ru.allReleases, "All releases")}</a>
   </p>
   <h2>
     {tr(
-      "Linux и macOS: сборка из исходников",
+      ru.linuxAndMacosBuildFromSource,
       "Linux and macOS: build from source",
     )}
   </h2>
   <p>
     {tr(
-      "В опубликованном выпуске нет готовых файлов для Linux и macOS. CI проекта настроен для Linux и Windows x64/ARM64, macOS Intel и Apple Silicon; это не список доступных загрузок. Для сборки нужны Git, Cargo и Rust 1.85+.",
-      "The published release has no prebuilt Linux or macOS binaries. Project CI is configured for Linux and Windows x64/ARM64, macOS Intel and Apple Silicon; that does not imply downloadable binaries. Building requires Git, Cargo and Rust 1.85+.",
+      ru.thePublishedReleaseHasNoPrebuiltLinuxOr,
+      "To build from source, install Git, Cargo and Rust 1.85 or later. Use the release tag to check out the matching source.",
     )}
   </p>
   <Code lang={lang} code={buildCode} syntax={false} name="Terminal" />
   <p>
     {tr(
-      "Исполняемый файл: target/release/epholang (Windows: target\\release\\epholang.exe). Сборка выполняется для текущей платформы.",
+      ru.executableTargetReleaseEpholangWindowsTargetReleaseEpholang,
       "Executable: target/release/epholang (Windows: target\\release\\epholang.exe). The build targets your current platform.",
     )}
   </p>
-  <h2>{tr("Установка расширения VS Code", "Install the VS Code extension")}</h2>
+  <h2>{tr(ru.installTheVsCodeExtension, "Install the VS Code extension")}</h2>
   <p>
     {tr(
-      "В Extensions откройте меню и выберите Install from VSIX… либо выполните команду в каталоге с загруженным файлом.",
+      ru.inExtensionsOpenTheMenuAndChooseInstall,
       "In Extensions, open the menu and choose Install from VSIX… or run this command in the downloaded file’s directory.",
     )}
   </p>
@@ -96,17 +97,17 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
         (lang === "ru" ? "CHANGELOG.ru.md" : "CHANGELOG.md")
       }
     >
-      {tr("История изменений", "Changelog")}
+      {tr(ru.changelog, "Changelog")}
     </a>{" "}
     ·{" "}
     <a href={url(lang, "getting-started")}>
-      {tr("Запустить первую программу", "Run your first program")}
+      {tr(ru.runYourFirstProgram, "Run your first program")}
     </a>
   </p>
   <p class="small-note">
-    {tr("Ссылки проверены", "Links reviewed")}: {release.checkedAt}.{" "}
+    {tr(ru.linksReviewed, "Links reviewed")}: {release.checkedAt}.{" "}
     {tr(
-      "Системные требования сверх опубликованных проектом не заявляются.",
+      ru.noSystemRequirementsBeyondThoseDocumentedByThe,
       "No system requirements beyond those documented by the project are claimed.",
     )}
   </p>

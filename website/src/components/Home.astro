@@ -1,4 +1,5 @@
 ---
+import { ru } from "../data/site.ru";
 import { code, outputs } from "../data/programs";
 import Code from "./Code.astro";
 import { ArrowRight, ArrowUpRight } from "@lucide/astro";
@@ -13,7 +14,7 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
     <div class="hero-logo">
       <img
         src={base + "assets/epholang_logo_icon.png"}
-        alt={tr("Логотип Epholang", "Epholang logo")}
+        alt={tr(ru.epholangLogo, "Epholang logo")}
         width="40"
         height="48"
       />
@@ -21,50 +22,50 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
     </div>
     <span class="eyebrow">
       {tr(
-        "Экспериментальный язык программирования",
+        ru.anExperimentalProgrammingLanguage,
         "An experimental programming language",
       )}
     </span>
     <h1>
-      {tr("Явные типы.", "Explicit types.")}
+      {tr(ru.explicitTypes, "Explicit types.")}
       <br />
-      {tr("Читаемый код.", "Readable code.")}
+      {tr(ru.readableCode, "Readable code.")}
       <br />
-      {tr("Строгая проверка.", "Strict checking.")}
+      {tr(ru.strictChecking, "Strict checking.")}
     </h1>
     <p class="lead">
       {tr(
-        "Epholang делает правила видимыми: от объявления переменной до возвращаемого значения. Написан на Rust, проверяет программу перед выполнением.",
+        ru.epholangMakesItsRulesVisibleFromAVariable,
         "Epholang makes its rules visible, from a variable declaration to a return value. Implemented in Rust, it checks your program before execution.",
       )}
     </p>
     <div class="actions">
       <a class="button" href={url(lang, "getting-started")}>
-        {tr("Начать работу", "Get started")}
+        {tr(ru.getStarted, "Get started")}
         <ArrowRight size={17} aria-hidden="true" />
       </a>
       <a class="button secondary" href={url(lang, "docs")}>
-        {tr("Документация", "Documentation")}
+        {tr(ru.documentation, "Documentation")}
       </a>
     </div>
     <p class="small-note">
       {tr(
-        "Alpha: язык развивается, правила могут меняться.",
+        ru.alphaTheLanguageIsEvolvingAndItsRules,
         "Alpha: the language is evolving and its rules may change.",
       )}
     </p>
   </div>
   <div>
     <div data-tabs>
-      <div class="tab-list" aria-label={tr("Примеры кода", "Code examples")}>
+      <div class="tab-list" aria-label={tr(ru.codeExamples, "Code examples")}>
         <button hidden id="tab-square" data-tab>
-          {tr("Квадраты", "Squares")}
+          {tr(ru.squares, "Squares")}
         </button>
         <button hidden id="tab-hello" data-tab>
           Hello
         </button>
         <button hidden id="tab-types" data-tab>
-          {tr("Типы", "Types")}
+          {tr(ru.types, "Types")}
         </button>
       </div>
       <div id="panel-square" data-panel>
@@ -94,7 +95,7 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
     </div>
     <p class="small-note">
       {tr(
-        "Настоящий синтаксис Epholang. Демонстрация без выполнения в браузере.",
+        ru.realEpholangSyntaxADemonstrationWithoutInBrowser,
         "Real Epholang syntax. A demonstration without in-browser execution.",
       )}
     </p>
@@ -104,11 +105,11 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
   <div class="section-heading">
     <div>
       <span class="eyebrow">
-        {tr("Осознанные правила", "Deliberate rules")}
+        {tr(ru.deliberateRules, "Deliberate rules")}
       </span>
       <h2>
         {tr(
-          "Меньше неявного. Больше ясности.",
+          ru.lessImplicitMoreExplicit,
           "Less implicit. More explicit.",
         )}
       </h2>
@@ -128,33 +129,33 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
 <section class="section mascot-section">
   <div>
     <span class="eyebrow">
-      {tr("От строки к программе", "From a line to a program")}
+      {tr(ru.fromALineToAProgram, "From a line to a program")}
     </span>
-    <h2>{tr("Начните с малого.", "Start with something small.")}</h2>
+    <h2>{tr(ru.startWithSomethingSmall, "Start with something small.")}</h2>
     <p class="lead">
       {tr(
-        "Получите интерпретатор, создайте первый .epho-файл и разберите его шаг за шагом. Хексер уже готов к работе.",
+        ru.getTheInterpreterCreateYourFirstEphoFile,
         "Get the interpreter, create your first .epho file and explore it step by step. Hexer is ready to join you.",
       )}
     </p>
     <a class="button secondary" href={url(lang, "getting-started")}>
-      {tr("Первая программа", "Your first program")}
+      {tr(ru.helloWorld, "Your first program")}
       <ArrowRight size={17} aria-hidden="true" />
     </a>
   </div>
   <img
     src={base + "assets/epholang_hexer_laptop.png"}
-    alt={tr("Хексер с ноутбуком", "Hexer holding a laptop")}
+    alt={tr(ru.hexerHoldingALaptop, "Hexer holding a laptop")}
     width="332"
     height="252"
     loading="lazy"
   />
 </section>
 <section class="section">
-  <span class="eyebrow">{tr("Статус проекта", "Project status")}</span>
+  <span class="eyebrow">{tr(ru.projectStatus, "Project status")}</span>
   <h2>
     {tr(
-      "Эксперимент, открытый для изучения.",
+      ru.anExperimentOpenToExploration,
       "An experiment, open to exploration.",
     )}
   </h2>
@@ -163,7 +164,7 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
   </div>
   <div class="actions">
     <a class="button" href={url(lang, "examples")}>
-      {tr("Изучить примеры", "Explore examples")}
+      {tr(ru.exploreExamples, "Explore examples")}
       <ArrowRight size={17} aria-hidden="true" />
     </a>
     <a href={repo}>

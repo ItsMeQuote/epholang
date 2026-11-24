@@ -1,166 +1,153 @@
-name: Release candidate
-
+name: Epholang Beta release
 on:
   push:
-    tags:
-      - "0.2.0"
+    tags: ['0.3.0-rc.*', '0.3.0']
   workflow_dispatch:
 
 permissions:
   contents: read
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  build:
-    name: Release binary (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-
+  binaries:
+    if: github.ref != 'refs/tags/0.3.0'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Linux x64
-            os: ubuntu-24.04
-            filename: epholang-linux-x64
-            exe: epholang
-
-          - name: Linux ARM64
-            os: ubuntu-24.04-arm
-            filename: epholang-linux-arm64
-            exe: epholang
-
-          - name: Windows x64
-            os: windows-2025
-            filename: epholang-windows-x64.exe
-            exe: epholang.exe
-
-          - name: Windows ARM64
-            os: windows-11-arm
-            filename: epholang-windows-arm64.exe
-            exe: epholang.exe
-
-          - name: macOS Intel
-            os: macos-15-intel
-            filename: epholang-macos-x64
-            exe: epholang
-
-          - name: macOS Apple Silicon
-            os: macos-15
-            filename: epholang-macos-arm64
-            exe: epholang
-
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-musl }
+          - { os: windows-2025, target: x86_64-pc-windows-msvc }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc }
+          - { os: macos-15-intel, target: x86_64-apple-darwin }
+          - { os: macos-15, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    env:
+      TARGET: ${{ matrix.target }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
-
-      - name: Run Clippy
-        run: cargo clippy --all-targets --locked -- -D warnings
-
-      - name: Run release tests
-        run: cargo test --all-targets --release --locked
-
-      - name: Build release binary
-        run: cargo build --release --locked
-
-      - name: Smoke test release binary
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+      - if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - shell: bash
+        run: |
+          set -eu
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --locked --target "$TARGET" -- -D warnings
+          cargo test --all-targets --release --locked --target "$TARGET"
+          cargo build --release --locked --target "$TARGET"
+      - name: Package and exercise the extracted executable
         shell: bash
         run: |
-          set -euo pipefail
-          "./target/release/${{ matrix.exe }}" run examples/01_hello.epho
-          "./target/release/${{ matrix.exe }}" run examples/02_functions.epho
-          "./target/release/${{ matrix.exe }}" run examples/03_loops.epho
-
-      - name: Prepare binary (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          mkdir -p dist
-          cp target/release/epholang "dist/${{ matrix.filename }}"
-
-      - name: Prepare binary (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item target/release/epholang.exe "dist/${{ matrix.filename }}"
-
-      - name: Upload verified binary
-        uses: actions/upload-artifact@v4
+          set -eu
+          mkdir -p dist unpack
+          stem="epholang-0.3.0-$TARGET"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            (cd "target/$TARGET/release" && 7z a "../../../dist/$stem.zip" epholang.exe)
+            7z x "dist/$stem.zip" -ounpack
+            cli=./unpack/epholang.exe
+          else
+            tar -czf "dist/$stem.tar.gz" -C "target/$TARGET/release" epholang
+            tar -xzf "dist/$stem.tar.gz" -C unpack
+            cli=./unpack/epholang
+          fi
+          for source in examples/*.epho; do
+            "$cli" format --check "$source"
+            "$cli" run "$source"
+          done
+          printf '42\n' > unused.epho
+          if "$cli" check unused.epho; then exit 1; fi
+          if [[ "$TARGET" == *linux* ]]; then
+            if [[ "$TARGET" == *musl ]]; then
+              if readelf -l "$cli" | grep -q INTERP; then exit 1; fi
+              images=alpine:3.22
+            else
+              images='debian:12 ubuntu:22.04 fedora:latest'
+            fi
+            for image in $images; do
+              docker run --rm -v "$PWD:/src:ro" -w /src "$image" "$cli" run examples/02_functions.epho
+            done
+          fi
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.filename }}
-          path: dist/${{ matrix.filename }}
+          name: ${{ matrix.target }}
+          path: dist/*
           if-no-files-found: error
-          retention-days: 30
 
-  vscode:
-    name: Package VS Code extension
+  tools:
+    if: github.ref != 'refs/tags/0.3.0'
     runs-on: ubuntu-24.04
-
-    defaults:
-      run:
-        working-directory: editors/vscode
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: editors/vscode/package-lock.json
-
-      - name: Install locked dependencies
-        run: npm ci
-
-      - name: Test extension
-        run: npm test
-
-      - name: Package VSIX
-        run: npm exec --yes --package @vscode/vsce@3.6.2 -- vsce package
-
-      - name: Upload VSIX
-        uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --locked
+      - working-directory: website
+        run: |
+          npm ci
+          npm run check
+          npm run build
+          npm run check:dist
+          npm run examples:check
+          npx playwright install --with-deps chromium
+          npm test
+      - working-directory: editors/vscode
+        env:
+          EPHOLANG_BIN: ${{ github.workspace }}/target/debug/epholang
+        run: |
+          npm ci
+          npm test
+          npm exec --yes --package @vscode/vsce@3.6.2 -- vsce package
+          unzip -p epholang-language-0.3.0.vsix extension/package.json | jq -e '.version == "0.3.0"'
+          curl -fsSL https://update.code.visualstudio.com/latest/linux-x64/stable | tar -xz -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/VSCode-linux-x64/bin/code" --extensions-dir "$RUNNER_TEMP/extensions" --install-extension epholang-language-0.3.0.vsix
+      - uses: actions/upload-artifact@v4
         with:
-          name: epholang-vscode-extension
-          path: editors/vscode/*.vsix
+          name: vscode
+          path: editors/vscode/epholang-language-0.3.0.vsix
           if-no-files-found: error
 
-  draft_release:
-    name: Create draft GitHub Release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build, vscode]
+  bundle:
+    needs: [binaries, tools]
     runs-on: ubuntu-24.04
-
-    permissions:
-      contents: write
-
     steps:
-      - name: Download verified artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-
-      - name: Generate SHA-256 checksums
-        working-directory: dist
-        shell: bash
+      - working-directory: dist
         run: |
-          set -euo pipefail
-          sha256sum epholang-* > SHA256SUMS.txt
-
-      - name: Create draft prerelease
-        uses: softprops/action-gh-release@v3
+          test "$(ls epholang-* | wc -l)" -eq 9
+          sha256sum epholang-* > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
         with:
-          files: dist/*
-          generate_release_notes: true
-          prerelease: true
-          draft: true
+          name: beta-release-assets
+          path: dist/*
+          if-no-files-found: error
+
+  draft:
+    if: github.ref == 'refs/tags/0.3.0'
+    runs-on: ubuntu-24.04
+    permissions: { contents: write, actions: read }
+    steps:
+      - uses: actions/checkout@v6
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          run=$(gh run list --workflow release.yml --commit "$GITHUB_SHA" --status success --limit 100 --json databaseId,headBranch --jq '[.[] | select(.headBranch | startswith("0.3.0-rc."))][0].databaseId // empty')
+          test -n "$run"
+          gh run download "$run" -n beta-release-assets -D dist
+          (cd dist && sha256sum -c SHA256SUMS)
+          gh release create 0.3.0 dist/* --verify-tag --draft --prerelease --title 'Epholang 0.3.0 "Beta" (β)' --notes-file RELEASE.md
+          mkdir verify
+          gh release download 0.3.0 -D verify
+          cmp dist/SHA256SUMS verify/SHA256SUMS
+          (cd verify && sha256sum -c SHA256SUMS)

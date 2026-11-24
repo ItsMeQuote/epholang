@@ -1,3 +1,4 @@
+import { ru } from "../src/data/site.ru";
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 test("root language choices and content work without JavaScript", async ({
@@ -7,7 +8,7 @@ test("root language choices and content work without JavaScript", async ({
   const page = await context.newPage();
   await page.goto("/epholang/");
   await expect(
-    page.getByRole("link", { name: "Русский", exact: false }).last(),
+    page.getByRole("link", { name: ru.russian, exact: false }).last(),
   ).toHaveAttribute("href", "/epholang/ru/");
   await page.locator('[data-choice="ru"]').click();
   await expect(page.locator("html")).toHaveAttribute("lang", "ru");
@@ -93,7 +94,7 @@ test("mobile menu, Escape and responsive overflow", async ({ page }) => {
       ).toBe(true);
     }
     if (width < 850) {
-      const menu = page.getByRole("button", { name: "Меню навигации" });
+      const menu = page.getByRole("button", { name: ru.navigationMenu });
       await menu.click();
       await expect(menu).toHaveAttribute("aria-expanded", "true");
       await page.keyboard.press("Escape");

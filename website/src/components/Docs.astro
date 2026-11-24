@@ -1,4 +1,5 @@
 ---
+import { ru } from "../data/site.ru";
 import { code } from "../data/programs";
 import Code from "./Code.astro";
 import { ArrowUpRight } from "@lucide/astro";
@@ -6,12 +7,12 @@ import { repo, t, type Lang } from "../data/site";
 const { lang } = Astro.props as { lang: Lang };
 const tr = (ru: string, en: string) => t(lang, ru, en);
 const wiki = [
-  ["Introduction", "Введение", "Introduction"],
-  ["Installation", "Установка", "Installation"],
-  ["Hello-World", "Первая программа", "Hello World"],
-  ["Syntax-Overview", "Обзор синтаксиса", "Syntax overview"],
-  ["Variables-and-Types", "Переменные и типы", "Variables and types"],
-  ["Project-Structure", "Структура проекта", "Project structure"],
+  ["Introduction", ru.introduction, "Introduction"],
+  ["Installation", ru.installation, "Installation"],
+  ["Hello-World", ru.helloWorld, "Hello World"],
+  ["Syntax-Overview", ru.syntaxOverview, "Syntax overview"],
+  ["Variables-and-Types", ru.variablesAndTypes, "Variables and types"],
+  ["Project-Structure", ru.projectStructure, "Project structure"],
 ];
 ---
 
@@ -19,12 +20,12 @@ const wiki = [
   <div class="notice">
     <p>
       {tr(
-        "Подробная документация ведётся в GitHub Wiki на английском языке. Ниже — проверенные ссылки на существующие страницы. Некоторые разделы оглавления Wiki пока не заполнены.",
+        ru.detailedDocumentationLivesInTheEnglishGithubWiki,
         "Detailed documentation lives in the English GitHub Wiki. These links point to existing pages; some topics in the Wiki navigation are still unwritten.",
       )}
     </p>
   </div>
-  <h2>{tr("Руководства и справочник", "Guides and reference")}</h2>
+  <h2>{tr(ru.guidesAndReference, "Guides and reference")}</h2>
   <ul class="link-list">
     {wiki.map(([s, ru, en]) => (
       <li>
@@ -36,28 +37,28 @@ const wiki = [
       </li>
     ))}
   </ul>
-  <h2>{tr("Коротко о синтаксисе", "Syntax essentials")}</h2>
+  <h2>{tr(ru.syntaxEssentials, "Syntax essentials")}</h2>
   <p>
     {tr(
-      "Тип переменной стоит перед именем. Объявление использует :=, присваивание использует =. После двоеточия тело блока отступает на один таб. В начале файла можно импортировать strings, math и types.",
+      ru.putTheTypeBeforeTheVariableNameUse,
       "Put the type before the variable name. Use := to declare it and = to assign a value. Indent the body one tab after a block header ending in a colon. Import strings, math and types at the start of the file.",
     )}
   </p>
   <Code lang={lang} code={code("07_types.epho")} name="07_types.epho" />
-  <h2>{tr("Результаты функций", "Function results")}</h2>
+  <h2>{tr(ru.functionResults, "Function results")}</h2>
   <p>
     {tr(
-      "Функция -> none возвращает значение null. Функция с маркером -| завершается в конце тела и запрещает return. Вызывайте её отдельной инструкцией, как Output.",
+      ru.aFunctionDeclaredWithNoneReturnsTheValue,
       "A function declared with -> none returns the value null. A function declared with -| finishes at the end of its body and forbids return. Call it as a statement, like Output.",
     )}
   </p>
   <p>
     {tr(
-      "Выражение со значением нужно использовать или явно отбросить через _ = выражение. Правая часть выполняется один раз. Одиночный _ разрешён только слева в этой инструкции. Запись x = _ вызывает ошибку и не удаляет объявление.",
+      ru.useEachExpressionThatProducesAValueOr,
       "Use each expression that produces a value, or explicitly discard it with _ = expression. The right side runs once. A lone _ is valid only on the left of this statement. Writing x = _ is an error and cannot delete a declaration.",
     )}
   </p>
-  <h2>{tr("Инструменты командной строки", "Command-line tools")}</h2>
+  <h2>{tr(ru.commandLineTools, "Command-line tools")}</h2>
   <Code
     lang={lang}
     code={
@@ -68,14 +69,14 @@ const wiki = [
   />
   <p>
     {tr(
-      "run проверяет и выполняет программу. check запускает статическую проверку. tokens и parse показывают токены и синтаксическое дерево. format форматирует файл, а format --check проверяет форматирование.",
+      ru.runChecksAndExecutesAProgramCheckRuns,
       "run checks and executes a program. check runs static checks. tokens and parse show the tokens and syntax tree. format formats the file, and format --check verifies formatting.",
     )}
   </p>
   <p>
     <a href={repo + "/blob/main/src/main.rs"}>
       {tr(
-        "Проверить поведение по исходникам интерпретатора",
+        ru.inspectTheInterpreterSource,
         "Inspect the interpreter source",
       )}
     </a>

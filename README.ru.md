@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ItsMeQuote/epholang/releases"><img src="https://img.shields.io/badge/версия-0.2.0%20(Alpha)-blue" alt="Версия"></a>
+  <a href="https://github.com/ItsMeQuote/epholang/releases"><img src="https://img.shields.io/badge/версия-0.3.0%20(Beta)-blue" alt="Версия"></a>
   <img src="https://img.shields.io/badge/реализация-Rust-orange" alt="Rust">
   <a href="https://github.com/ItsMeQuote/epholang/stargazers"><img src="https://img.shields.io/github/stars/ItsMeQuote/epholang" alt="Звёзды"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ItsMeQuote/epholang" alt="Лицензия"></a>
@@ -23,6 +23,8 @@
 <p align="center"><a href="README.md">English</a> &bull; <strong>Русский</strong></p>
 
 ---
+
+[Переход с 0.2 на 0.3](MIGRATION.ru.md)
 
 ## Почему Epholang?
 

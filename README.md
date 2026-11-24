@@ -13,16 +13,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ItsMeQuote/epholang/releases"><img src="https://img.shields.io/badge/version-0.2.0%20(Alpha)-blue" alt="Version"></a>
+  <a href="https://github.com/ItsMeQuote/epholang/releases"><img src="https://img.shields.io/badge/version-0.3.0%20(Beta)-blue" alt="Version"></a>
   <img src="https://img.shields.io/badge/implemented%20in-Rust-orange" alt="Rust">
   <a href="https://github.com/ItsMeQuote/epholang/stargazers"><img src="https://img.shields.io/github/stars/ItsMeQuote/epholang" alt="Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ItsMeQuote/epholang" alt="License"></a>
   <a href="https://github.com/ItsMeQuote/epholang/actions/workflows/ci.yml"><img src="https://github.com/ItsMeQuote/epholang/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-<p align="center"><strong>English</strong> &bull; <a href="README.ru.md">Русский</a></p>
+<p align="center"><strong>English</strong> &bull; <a href="README.ru.md">Russian</a></p>
 
 ---
+
+[Migration from 0.2 to 0.3](MIGRATION.md)
 
 ## Why Epholang?
 

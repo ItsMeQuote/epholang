@@ -1,3 +1,4 @@
+import { ru } from "./site.ru";
 export type Lang = "ru" | "en";
 export const repo = "https://github.com/ItsMeQuote/epholang";
 export const base = "/epholang/";
@@ -11,12 +12,12 @@ export const slugs = [
 ] as const;
 export const labels = {
   ru: [
-    "Главная",
-    "Начало работы",
-    "Документация",
-    "Примеры",
-    "Загрузка",
-    "О проекте",
+    ru.home,
+    ru.getStartedText,
+    ru.documentation,
+    ru.examples,
+    ru.download,
+    ru.about,
   ],
   en: ["Home", "Get started", "Documentation", "Examples", "Download", "About"],
 };
@@ -26,12 +27,12 @@ export const t = (lang: Lang, ru: string, en: string) =>
   lang === "ru" ? ru : en;
 export const descriptions = {
   ru: [
-    "Экспериментальный язык программирования с явными типами и строгой статической проверкой.",
-    "Пошаговая установка Epholang и запуск первой программы.",
-    "Краткие руководства Epholang и ссылки на GitHub Wiki.",
-    "Семь настоящих примеров Epholang: функции, циклы, списки и модули.",
-    "Epholang: Windows, сборка из исходников и расширение VS Code.",
-    "Принципы Epholang, ограничения, авторство и участие в разработке.",
+    ru.epholang,
+    ru.epholangGithubWiki,
+    ru.epholangText,
+    ru.epholangWindowsVsCode,
+    ru.epholangTextText,
+    ru.anExperimentalProgrammingLanguageWithExplicitTypesAnd,
   ],
   en: [
     "An experimental programming language with explicit types and strict static checking.",
@@ -44,100 +45,100 @@ export const descriptions = {
 };
 export const features = [
   [
-    "Явные типы",
+    ru.explicitTypesText,
     "Explicit types",
-    "int и flt разделены. Преобразования выполняются явно.",
+    ru.intAndFltAreDistinctConversionsAreExplicit,
     "int and flt are distinct. Conversions are explicit.",
     "int · flt · str · bool",
   ],
   [
-    "Проверка до запуска",
+    ru.checkBeforeRunning,
     "Check before running",
-    "Ошибки типов, неиспользуемые имена, рекурсия и отсутствие return останавливают запуск.",
+    ru.typeErrorsUnusedNamesRecursionAndMissingReturns,
     "Type errors, unused names, recursion and missing returns prevent execution.",
     "epholang check",
   ],
   [
-    "Типизированные функции",
+    ru.typedFunctions,
     "Typed functions",
-    "Заголовок задаёт тип результата через -> или указывает отсутствие значения через -|.",
+    ru.functionHeadersDeclareAResultTypeWithOr,
     "Function headers declare a result type with -> or mark the absence of a value with -|.",
     "function Square(int value) -> int:",
   ],
   [
-    "Списки с единицы",
+    ru.listsStartAtOne,
     "Lists start at one",
-    "Список может иметь объединённый тип элементов. Первый индекс — 1.",
+    ru.aListCanDeclareAUnionElementType,
     "A list can declare a union element type. Its first index is 1.",
     "numbers[1]",
   ],
   [
-    "Выразительные строки",
+    ru.expressiveStrings,
     "Expressive strings",
-    "Вставляйте выражения через #{...}. Перенос строки указывается явно.",
+    ru.embedExpressionsWithNewlinesAreExplicit,
     "Embed expressions with #{...}. Newlines are explicit.",
     'Output("Hello, #{name}!\\n")',
   ],
   [
-    "Три стандартных модуля",
+    ru.threeStandardModules,
     "Three standard modules",
-    "Строки, математика и преобразования типов без пользовательских импортов.",
+    ru.stringsMathematicsAndTypeConversionsThroughBuiltIn,
     "Strings, mathematics and type conversions through built-in modules.",
     "strings · math · types",
   ],
 ];
 export const limits = {
-  ru: "Язык экспериментальный. Нет вложенных списков, пользовательских типов и модулей, обработки ошибок как значений и нативной компиляции. Возможны несовместимые изменения.",
+  ru: ru.theLanguageIsExperimentalNestedListsCustomTypes,
   en: "The language is experimental. Nested lists, custom types and modules, errors as values and native compilation are unavailable. Breaking changes are possible.",
 };
 export const examples = [
   {
     file: "01_hello.epho",
-    ru: "Первое приветствие",
+    ru: ru.aFirstHello,
     en: "A first hello",
-    r: "Встроенная Output выводит строку. Перенос строки задаётся через \n.",
+    r: ru.theBuiltInOutputPrintsAStringUse,
     e: "The built-in Output prints a string. Use \n for a newline.",
   },
   {
     file: "02_functions.epho",
-    ru: "Функция и результат",
+    ru: ru.aFunctionAndItsResult,
     en: "A function and its result",
-    r: "Square возвращает число. DisplaySquare выводит его и завершается.",
+    r: ru.squareReturnsANumberDisplaysquarePrintsItAnd,
     e: "Square returns a number. DisplaySquare prints it and finishes.",
   },
   {
     file: "03_loops.epho",
-    ru: "Два вида цикла",
+    ru: ru.twoKindsOfLoop,
     en: "Two kinds of loop",
-    r: "Цикл по условию и последовательный обход списка.",
+    r: ru.aConditionalLoopAndIterationOverAList,
     e: "A conditional loop and iteration over a list.",
   },
   {
     file: "04_lists.epho",
-    ru: "Работа со списками",
+    ru: ru.workingWithLists,
     en: "Working with lists",
-    r: "Insert возвращает новый список. Индексация начинается с единицы.",
+    r: ru.insertReturnsANewListIndexingStartsAt,
     e: "Insert returns a new list. Indexing starts at one.",
   },
   {
     file: "05_strings.epho",
-    ru: "Строковый модуль",
+    ru: ru.theStringsModule,
     en: "The strings module",
-    r: "Вызовы модуля используют двоеточие: strings:Split(...).",
+    r: ru.moduleCallsUseAColonStringsSplit,
     e: "Module calls use a colon: strings:Split(...).",
   },
   {
     file: "06_math.epho",
-    ru: "Математика",
+    ru: ru.mathematics,
     en: "Mathematics",
-    r: "Сумма, среднее и случайное целое с включёнными границами.",
+    r: ru.sumAverageAndARandomIntegerWithInclusive,
     e: "Sum, average and a random integer with inclusive bounds.",
   },
   {
     file: "07_types.epho",
-    ru: "Явное преобразование",
+    ru: ru.explicitConversion,
     en: "Explicit conversion",
-    r: "Проверка возможности преобразования перед Convert.",
+    r: ru.checkConvertibilityBeforeCallingConvert,
     e: "Check convertibility before calling Convert.",
   },
 ];

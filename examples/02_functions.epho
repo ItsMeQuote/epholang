@@ -2,6 +2,7 @@ function Square(int value) -> int:
 	return int value * value
 
 function DisplaySquare(int value) -|:
-	Output("Square of #{value}: #{Square(value)}\n")
+	int square := Square(value)
+	Output("Square of #{value}: #{square}\n")
 
 DisplaySquare(7)

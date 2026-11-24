@@ -1,4 +1,5 @@
 ---
+import { ru } from "../data/site.ru";
 import { code, outputs } from "../data/programs";
 import Code from "./Code.astro";
 import { ArrowUpRight } from "@lucide/astro";
@@ -10,7 +11,7 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
 <article class="content">
   <p>
     {tr(
-      "Программы читаются из examples/ существующего репозитория. Код одинаков для обеих локализаций. Здесь нет выполнения в браузере.",
+      ru.programsAreReadFromTheExistingRepositoryS,
       "Programs are read from the existing repository’s examples/ directory. The code is identical in both locales. There is no in-browser execution.",
     )}
   </p>
@@ -28,13 +29,13 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
       {ex.file === "06_math.epho" && (
         <p class="small-note">
           {tr(
-            "Случайный результат меняется при запуске. Обе границы RandomInterval включены; функция не предназначена для криптографии.",
+            ru.theRandomResultChangesBetweenRunsBothRandominterval,
             "The random result changes between runs. Both RandomInterval bounds are inclusive; the function is not intended for cryptography.",
           )}
         </p>
       )}
       <a class="file" href={repo + "/blob/main/examples/" + ex.file}>
-        {tr("Исходный файл на GitHub", "Source file on GitHub")}
+        {tr(ru.sourceFileOnGithub, "Source file on GitHub")}
         <ArrowUpRight size={13} aria-hidden="true" />
       </a>
     </section>
