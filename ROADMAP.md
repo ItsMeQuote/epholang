@@ -66,11 +66,11 @@ Beta changed how programs express block structure, return values and type altern
 
 | Area | Shipped in Beta | Where to try it |
 | --- | --- | --- |
-| Source syntax | Colon-and-tab blocks, type-first declarations, `else if` and `else`, multiline logical expressions and nested single-line interpolation | [Language reference](docs/Language-Reference.md) |
-| Functions and checking | Explicit result types, procedures, mandatory use or discard of expression values, and checks for unused names and recursion | [Functions and results](docs/Functions-and-Results.md) |
-| Control flow | `break` and `skip` in loops | [Branches and loops](docs/Control-Flow.md) |
-| Types and text | Unions, lists with union element types, one-based string indexing, declared and current type inspection, and conversion of a string into a list of scalar values | [Lists and Unicode text](docs/Collections-and-Text.md) |
-| Standard library | ASCII case predicates and inclusive ascending or descending alphabet ranges | [Standard library](docs/Standard-Library.md) |
+| Source syntax | Colon-and-tab blocks, type-first declarations, `else if` and `else`, multiline logical expressions and nested single-line interpolation | [Language reference](https://github.com/ItsMeQuote/epholang/wiki/Syntax-Overview) |
+| Functions and checking | Explicit result types, procedures, mandatory use or discard of expression values, and checks for unused names and recursion | [Functions and results](https://github.com/ItsMeQuote/epholang/wiki/Functions) |
+| Control flow | `break` and `skip` in loops | [Branches and loops](https://github.com/ItsMeQuote/epholang/wiki/Control-Flow) |
+| Types and text | Unions, lists with union element types, one-based string indexing, declared and current type inspection, and conversion of a string into a list of scalar values | [Lists and Unicode text](https://github.com/ItsMeQuote/epholang/wiki/Collections-and-Text) |
+| Standard library | ASCII case predicates and inclusive ascending or descending alphabet ranges | [Standard library](https://github.com/ItsMeQuote/epholang/wiki/Standard-Library) |
 | Editor and distribution | EphoFMT in the CLI and VS Code, a VSIX and checksums, plus x86-64 and ARM64 CLI archives for Windows, macOS and Linux (glibc and musl) | [Release assets](https://github.com/ItsMeQuote/epholang/releases/tag/0.3.0) · [RC run](https://github.com/ItsMeQuote/epholang/actions/runs/45407953026) |
 
 ## After Beta
@@ -86,4 +86,4 @@ These are existing areas of interest. The project has not assigned them to a rel
 | Tools and documentation | The CLI checks, runs and formats files. The extension supplies highlighting, snippets and formatting. The release uses a cross-platform build matrix. | Improve diagnostic guidance, deepen Wiki coverage, explore editor assistance and expand runtime test coverage across platforms. |
 | Native compiler research | The released CLI executes programs with a tree-walking interpreter. | Compare compilation strategies and runtime requirements. An initial prototype could compare a small program's output and errors against the interpreter. |
 
-For the behavior supported today, use the [Beta handbook](docs/README.md) or [Wiki](https://github.com/ItsMeQuote/epholang/wiki). Future experiments may change or be dropped as the language evolves.
+For the behavior supported today, use the [Beta handbook on GitHub Wiki](https://github.com/ItsMeQuote/epholang/wiki/Handbook). Future experiments may change or be dropped as the language evolves.

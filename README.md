@@ -24,7 +24,7 @@
 
 ---
 
-[Beta handbook](docs/README.md) · [Roadmap](ROADMAP.md) · [Installation](docs/Installation.md) · [Tutorial](docs/Tutorial.md) · [Language reference](docs/Language-Reference.md) · [Standard library](docs/Standard-Library.md) · [CLI and VS Code](docs/CLI-Reference.md) · [Migration from 0.2 to 0.3](MIGRATION.md)
+[Beta handbook](https://github.com/ItsMeQuote/epholang/wiki/Handbook) · [Roadmap](ROADMAP.md) · [Installation](https://github.com/ItsMeQuote/epholang/wiki/Installation) · [Tutorial](https://github.com/ItsMeQuote/epholang/wiki/Hello-World) · [Language reference](https://github.com/ItsMeQuote/epholang/wiki/Syntax-Overview) · [Standard library](https://github.com/ItsMeQuote/epholang/wiki/Standard-Library) · [CLI and VS Code](https://github.com/ItsMeQuote/epholang/wiki/CLI-Reference) · [Migration from 0.2 to 0.3](MIGRATION.md)
 
 ## Why Epholang?
 
@@ -214,7 +214,7 @@ Every user declaration needs a syntactic reference after it is declared. This in
 
 ## Upgrading to 0.3.0 Beta
 
-For 0.2 source, migrate block indentation and function signatures first. Then review every standalone expression and every caller that expected a value from `Output`. The [migration guide](MIGRATION.md) pairs old and new syntax. The [diagnostics guide](docs/Diagnostics.md) explains the messages you may encounter when checking the migrated file.
+For 0.2 source, migrate block indentation and function signatures first. Then review every standalone expression and every caller that expected a value from `Output`. The [migration guide](MIGRATION.md) pairs old and new syntax. The [diagnostics guide](https://github.com/ItsMeQuote/epholang/wiki/Diagnostics) explains the messages you may encounter when checking the migrated file.
 
 ## From 0.1.0 to 0.2.0
 

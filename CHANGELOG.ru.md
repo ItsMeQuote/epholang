@@ -24,7 +24,7 @@
 
 - Добавлены EphoFMT в CLI и его интеграция с VS Code. Подсветка и сниппеты учитывают синтаксис с отступами.
 - Выпуск включает сборки Windows, macOS, Linux с glibc и Linux с musl для x86-64 и ARM64, а также VSIX и SHA256SUMS.
-- Примеры и установка описаны в [руководстве по миграции](MIGRATION.ru.md) и [руководстве по β](docs/Guide.ru.md).
+- Примеры и установка описаны в [руководстве по миграции](MIGRATION.ru.md) и [руководстве по β](https://github.com/ItsMeQuote/epholang/wiki/Guide.ru).
 
 ## 0.2.0 alpha
 
