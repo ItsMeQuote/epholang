@@ -1,6 +1,6 @@
 ---
 import { ru } from "../data/site.ru";
-import { code, developmentBuildCode, outputs } from "../data/programs";
+import { code, buildCode, outputs } from "../data/programs";
 import Code from "./Code.astro";
 import { Download } from "@lucide/astro";
 import { url, t, type Lang } from "../data/site";
@@ -25,7 +25,7 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
     <p>
       {tr(
         ru.theExamplesInThisGuideUseIndentationSyntax,
-        "The examples in this guide use indentation syntax. Build Epholang from the same repository revision as the site. Published builds are available separately.",
+        "The examples in this guide use Epholang 0.3 Beta. Download a build for your operating system or build the tagged source below.",
       )}
     </p>
     <a class="button" href={url(lang, "download")}>
@@ -36,10 +36,10 @@ const tr = (ru: string, en: string) => t(lang, ru, en);
     <p>
       {tr(
         ru.youNeedGitCargoAndRust185,
-        "You need Git, Cargo and Rust 1.85 or newer. Run the command from the repository directory.",
+        "You need Git, Cargo and Rust 1.85 or newer. The commands below clone the repository and select the published tag.",
       )}
     </p>
-    <Code lang={lang} code={developmentBuildCode} name="Terminal" syntax={false} />
+    <Code lang={lang} code={buildCode} name="Terminal" syntax={false} />
     <p>
       {tr(
         ru.theResultIsTargetReleaseEpholangOrTarget,

@@ -1,28 +1,82 @@
 {
-  "tag": "0.2.0",
-  "name": "0.2.0 Alpha",
+  "tag": "0.3.0",
+  "name": "Epholang 0.3.0 \"Beta\" (β)",
   "prerelease": true,
-  "publishedAt": "2026-11-07T06:02:53Z",
-  "checkedAt": "2026-11-13",
-  "url": "https://github.com/ItsMeQuote/epholang/releases/tag/0.2.0",
+  "publishedAt": "2026-11-24T14:19:03Z",
+  "checkedAt": "2026-11-24",
+  "url": "https://github.com/ItsMeQuote/epholang/releases/tag/0.3.0",
   "assets": [
     {
-      "id": 719782618,
-      "name": "epholang-language-0.2.0.vsix",
-      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.2.0/epholang-language-0.2.0.vsix",
-      "platform": "VS Code",
-      "kind": "editor",
-      "size": 7763,
-      "digest": "sha256:93fc0eb763e1d301030fbe522de61397173c3382ef84e5e37993ea2d8be4708e"
+      "name": "epholang-0.3.0-aarch64-apple-darwin.tar.gz",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-0.3.0-aarch64-apple-darwin.tar.gz",
+      "platform": "macOS ARM64",
+      "kind": "interpreter",
+      "size": 387420,
+      "digest": "sha256:099d8ffcb3b95f3889e757c2d2791ba8ebca84ab65c65c7aa08affddb44de499"
     },
     {
-      "id": 720034947,
-      "name": "epholang.exe",
-      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.2.0/epholang.exe",
-      "platform": "Windows",
+      "name": "epholang-0.3.0-aarch64-pc-windows-msvc.zip",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-0.3.0-aarch64-pc-windows-msvc.zip",
+      "platform": "Windows ARM64",
       "kind": "interpreter",
-      "size": 601600,
-      "digest": "sha256:3fe88e0c9525f91f23476bedf18c5f0b893cace373fb89315a91c4e07ead3afe"
+      "size": 276127,
+      "digest": "sha256:1f65925b97d91d146b21ac4d944c875b7ba47ebfcb23c414169ff0d2ff51f05b"
+    },
+    {
+      "name": "epholang-0.3.0-aarch64-unknown-linux-gnu.tar.gz",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-0.3.0-aarch64-unknown-linux-gnu.tar.gz",
+      "platform": "Linux (glibc) ARM64",
+      "kind": "interpreter",
+      "size": 412979,
+      "digest": "sha256:baf654726992c2f65d3f41379eeee9afa306dacec2d17624b4f190de317d535e"
+    },
+    {
+      "name": "epholang-0.3.0-aarch64-unknown-linux-musl.tar.gz",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-0.3.0-aarch64-unknown-linux-musl.tar.gz",
+      "platform": "Linux (musl) ARM64",
+      "kind": "interpreter",
+      "size": 467795,
+      "digest": "sha256:1a36ab50e3d7f4a208e8da44019ce7a109ce7d9b5d394758e8d5cd0b7a270008"
+    },
+    {
+      "name": "epholang-0.3.0-x86_64-apple-darwin.tar.gz",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-0.3.0-x86_64-apple-darwin.tar.gz",
+      "platform": "macOS x86-64",
+      "kind": "interpreter",
+      "size": 408368,
+      "digest": "sha256:508acfb68271c6b75e3ff6d9ae0e5bc34b5ba927ffa6bde712ef069c1eb191a6"
+    },
+    {
+      "name": "epholang-0.3.0-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-0.3.0-x86_64-pc-windows-msvc.zip",
+      "platform": "Windows x86-64",
+      "kind": "interpreter",
+      "size": 295715,
+      "digest": "sha256:25e171db68cf417d1577e574468d50b1b5b5316ebd8db3d492cc924475d35ad9"
+    },
+    {
+      "name": "epholang-0.3.0-x86_64-unknown-linux-gnu.tar.gz",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-0.3.0-x86_64-unknown-linux-gnu.tar.gz",
+      "platform": "Linux (glibc) x86-64",
+      "kind": "interpreter",
+      "size": 432843,
+      "digest": "sha256:d3677d3840130edd570acc461835b1a8dad095ddb104ab86a102a4608ca30618"
+    },
+    {
+      "name": "epholang-0.3.0-x86_64-unknown-linux-musl.tar.gz",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-0.3.0-x86_64-unknown-linux-musl.tar.gz",
+      "platform": "Linux (musl) x86-64",
+      "kind": "interpreter",
+      "size": 486809,
+      "digest": "sha256:03a651dead6bd1e167a32a55937497fe698eb0c740020ae2ddde05ff23c0b9c6"
+    },
+    {
+      "name": "epholang-language-0.3.0.vsix",
+      "url": "https://github.com/ItsMeQuote/epholang/releases/download/0.3.0/epholang-language-0.3.0.vsix",
+      "platform": "VS Code",
+      "kind": "editor",
+      "size": 11730,
+      "digest": "sha256:57e3d445b2e992d497586b1ffb87ac8c5cb6f34cf691f1e1545b8c0cfb157a42"
     }
   ]
 }

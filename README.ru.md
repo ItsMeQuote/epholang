@@ -24,7 +24,7 @@
 
 ---
 
-[Переход с 0.2 на 0.3](MIGRATION.ru.md)
+[Руководство по β](docs/Guide.ru.md) · [Переход с 0.2 на 0.3](MIGRATION.ru.md)
 
 ## Почему Epholang?
 

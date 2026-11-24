@@ -11,4 +11,3 @@ export const buildCode =
   "git clone https://github.com/ItsMeQuote/epholang.git\ncd epholang\ngit checkout " +
   release.tag +
   "\ncargo build --release --locked";
-export const developmentBuildCode = "cargo build --release --locked";

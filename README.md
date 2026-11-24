@@ -24,7 +24,7 @@
 
 ---
 
-[Migration from 0.2 to 0.3](MIGRATION.md)
+[Installation](docs/Installation.md) · [Tutorial](docs/Tutorial.md) · [Language reference](docs/Language-Reference.md) · [Standard library](docs/Standard-Library.md) · [CLI and VS Code](docs/CLI-Reference.md) · [Migration from 0.2 to 0.3](MIGRATION.md)
 
 ## Why Epholang?
 
