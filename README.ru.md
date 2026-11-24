@@ -87,11 +87,11 @@ cargo build --release --locked
 ### Командная строка
 
 ```sh
-epholang run program.epho      # проверить и запустить
-epholang check program.epho    # только статическая проверка
-epholang tokens program.epho   # показать токены лексера
-epholang parse program.epho    # показать синтаксическое дерево
-epholang format program.epho   # форматировать код через EphoFMT
+epholang run program.epho            # проверить и запустить
+epholang check program.epho          # только статическая проверка
+epholang tokens program.epho         # показать токены лексера
+epholang parse program.epho          # показать синтаксическое дерево
+epholang format program.epho         # форматировать код через EphoFMT
 epholang format --check program.epho # проверить форматирование без изменений
 ```
 
@@ -115,9 +115,9 @@ cargo run -- run examples/03_loops.epho
 | Другие типы | `str`, `bool`, `none` и значения типов (`type`)                           |
 | Списки      | `ls<int>`, `ls<flt>`, `ls<str>`, `ls<bool>`, `ls<none>` — без вложенности |
 | Переменные  | `int age := 20` и `age = 21`                                              |
-| Функции     | `function Square(int x) -> int:`                         |
-| Условия     | `if …: / else if …: / else:`                           |
-| Циклы       | `loop условие:` или `loop элемент in список:`                       |
+| Функции     | `function Square(int x) -> int:`                                          |
+| Условия     | `if …: / else if …: / else:`                                              |
+| Циклы       | `loop условие:` или `loop элемент in список:`                             |
 | Строки      | `Output("Привет, #{name}!\n")`                                            |
 | Комментарии | `/* блочные комментарии /* можно вкладывать */ */`                        |
 
@@ -180,7 +180,7 @@ Output("Можно преобразовать: #{types:IsConvertible("42", int)}
 | --------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `strings` | `Trim`, `Replace`, `Split`, `StartsWith`, `EndsWith`, `ToLowerCase`, `ToUpperCase`, `Capitalize`, `Repeat`                 |
 | `math`    | `AbsoluteValue`, `SquareRoot`, `Floor`, `Ceil`, `Round`, `Minimum`, `Maximum`, `Clamp`, `Sum`, `Average`, `RandomInterval` |
-| `types`   | `Convert`, `IsConvertible`, `DeclaredTypeOf`, `CurrentTypeOf`                                                                                                 |
+| `types`   | `Convert`, `IsConvertible`, `DeclaredTypeOf`, `CurrentTypeOf`                                                              |
 
 `math:RandomInterval(minimum, maximum)` возвращает `int` с **обеими включёнными границами**; функция не предназначена для криптографии. Для `types:Convert(value, targetType)` и `types:IsConvertible(value, targetType)` требуется литерал типа `int`, `flt`, `str`, `bool` или `ls<str>`. Описание аргументов и пограничных случаев — в [Wiki](https://github.com/ItsMeQuote/epholang/wiki).
 
