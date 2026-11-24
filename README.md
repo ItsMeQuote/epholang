@@ -93,11 +93,11 @@ To build a specific version, check out its corresponding Git tag first.
 ### CLI
 
 ```sh
-epholang run program.epho      # statically check, then run
-epholang check program.epho    # static checks only
-epholang tokens program.epho   # inspect lexer tokens
-epholang parse program.epho    # inspect the syntax tree
-epholang format program.epho   # format source with EphoFMT
+epholang run program.epho            # statically check, then run
+epholang check program.epho          # static checks only
+epholang tokens program.epho         # inspect lexer tokens
+epholang parse program.epho          # inspect the syntax tree
+epholang format program.epho         # format source with EphoFMT
 epholang format --check program.epho # check formatting without changes
 ```
 
@@ -121,9 +121,9 @@ Epholang files use tabs and format on save by default. The VS Code **Format Docu
 | Other types | `str`, `bool`, `none`, and type values (`type`)                          |
 | Lists       | `ls<int>`, `ls<flt>`, `ls<str>`, `ls<bool>`, `ls<none>` — one level deep |
 | Variables   | `int age := 20` and `age = 21`                                           |
-| Functions   | `function Square(int x) -> int:`                        |
-| Conditions  | `if …: / else if …: / else:`                          |
-| Loops       | `loop condition:` or `loop item in items:`                         |
+| Functions   | `function Square(int x) -> int:`                                         |
+| Conditions  | `if …: / else if …: / else:`                                             |
+| Loops       | `loop condition:` or `loop item in items:`                               |
 | Strings     | `Output("Hello, #{name}!\n")`                                            |
 | Comments    | `/* block comments /* can nest */ */`                                    |
 
@@ -188,7 +188,7 @@ Output("Convertible: #{types:IsConvertible("42", int)}\n")
 | --------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `strings` | `Trim`, `Replace`, `Split`, `StartsWith`, `EndsWith`, `ToLowerCase`, `ToUpperCase`, `Capitalize`, `Repeat`                 |
 | `math`    | `AbsoluteValue`, `SquareRoot`, `Floor`, `Ceil`, `Round`, `Minimum`, `Maximum`, `Clamp`, `Sum`, `Average`, `RandomInterval` |
-| `types`   | `Convert`, `IsConvertible`, `DeclaredTypeOf`, `CurrentTypeOf`                                                                                                 |
+| `types`   | `Convert`, `IsConvertible`, `DeclaredTypeOf`, `CurrentTypeOf`                                                              |
 
 `math:RandomInterval(minimum, maximum)` returns an `int` with **both bounds included**. It is not intended for cryptographic use.
 
