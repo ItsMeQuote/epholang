@@ -6,16 +6,25 @@ All notable changes to Epholang are recorded here.
 
 ## 0.3.0 ("Beta") — November 24, 2026
 
-- Functions declared with `-|` finish at the end of their body and forbid `return`. The built-in `Output` now uses this contract. Functions returning `none` still produce the value `null`.
-- Breaking change: a standalone expression that produces a value is a static error. Use the value or explicitly discard it with `_ = expression`. A lone `_` is reserved for this statement.
+### Breaking changes
 
-- Block headers use a colon followed by one tab per nesting level. Conditions use `else if` and `else`.
-- Variable and parameter types precede their names. Function headers use `->` before the result type. Return statements still carry an explicit type.
-- Strings accept ordinary quotes and nested expressions in single-line interpolation.
-- User-defined functions must be declared before calls. Direct and indirect recursion are static errors. All declared names require a reference, including names beginning with `_`.
-- EphoFMT and VS Code support the indentation syntax. EphoFMT validates syntax and adds trailing commas to multiline lists.
+- Use colon-and-tab blocks and the branch keywords `else if` and `else`.
+- Put types before variable and parameter names. Declare a function result using `->` and retain the explicit type on return statements.
+- Consume each expression value or use `_ = expression`. A lone underscore is reserved for discard. Output now completes as a procedure.
+- Replace TypeOf with types:CurrentTypeOf after importing the types module.
 
-- Added union types, break and skip, multiline logical conditions, one-based Unicode string indexing, string-to-character-list conversion, ASCII utilities and declared/current type introspection.
+### Language and library
+
+- Added procedures, union types, break and skip, multiline logical expressions, and nested one-line interpolation.
+- User functions must be declared before use. Direct and indirect recursion are rejected. Declared names, including names with leading underscores, require references.
+- Strings now support one-based Unicode scalar indexing. The strings module adds AlphabetRange and the ASCII case predicates.
+- Added conversion from str to ls<str>, plus DeclaredTypeOf for declared types and CurrentTypeOf for actual types.
+
+### Tools and distribution
+
+- Added EphoFMT to the CLI and VS Code integration with indentation-aware highlighting and snippets.
+- The Beta package includes Windows, macOS, glibc Linux and musl Linux builds for x86-64 and ARM64, a VSIX, and SHA256SUMS.
+- See the [migration guide](MIGRATION.md) and [release notes](RELEASE.md) for examples and installation.
 
 ## 0.2.0 alpha
 
